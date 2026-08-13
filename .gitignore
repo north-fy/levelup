@@ -29,5 +29,5 @@ go.work.sum
 PLAN.md
 
 # Editor/IDE
-# .idea/
+.idea/
 # .vscode/
