@@ -17,6 +17,30 @@ type UserStore interface {
 	IsEmailTaken(ctx context.Context, email string, excludeID uint) (bool, error)
 }
 
+// BranchStore abstracts branch persistence.
+type BranchStore interface {
+	Create(ctx context.Context, branch *domain.Branch) error
+	GetByIDAndUser(ctx context.Context, id, userID uint) (*domain.Branch, error)
+	ListByUser(ctx context.Context, userID uint) ([]domain.Branch, error)
+	Update(ctx context.Context, branch *domain.Branch) error
+	Delete(ctx context.Context, branch *domain.Branch) error
+}
+
+// QuestStore abstracts quest persistence.
+type QuestStore interface {
+	Create(ctx context.Context, quest *domain.Quest) error
+	GetByIDAndUser(ctx context.Context, id, userID uint) (*domain.Quest, error)
+	ListByBranchAndUser(ctx context.Context, branchID, userID uint) ([]domain.Quest, error)
+	Update(ctx context.Context, quest *domain.Quest) error
+	Delete(ctx context.Context, quest *domain.Quest) error
+	HasActiveTimer(ctx context.Context, userID uint) (bool, error)
+}
+
+// QuestEventPublisher forwards completed-quest events for statistics.
+type QuestEventPublisher interface {
+	PublishQuestCompleted(ctx context.Context, event domain.QuestCompletedEvent) error
+}
+
 // TokenStore abstracts ephemeral auth data persistence.
 type TokenStore interface {
 	SaveRefresh(ctx context.Context, tokenID string, userID uint, ttl time.Duration) error

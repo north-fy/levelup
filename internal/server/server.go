@@ -28,16 +28,18 @@ import (
 
 // Server wraps the Gin engine and the underlying http.Server.
 type Server struct {
-	engine  *gin.Engine
-	http    *http.Server
-	pg      *gorm.DB
-	ch      *sql.DB
-	redis   *redis.Client
-	log     *zap.Logger
-	auth    *handlers.AuthHandler
-	users   *handlers.UserHandler
-	authSvc *services.AuthService
-	jwtMgr  *jwt.Manager
+	engine   *gin.Engine
+	http     *http.Server
+	pg       *gorm.DB
+	ch       *sql.DB
+	redis    *redis.Client
+	log      *zap.Logger
+	auth     *handlers.AuthHandler
+	users    *handlers.UserHandler
+	branches *handlers.BranchHandler
+	quests   *handlers.QuestHandler
+	authSvc  *services.AuthService
+	jwtMgr   *jwt.Manager
 }
 
 // New builds the HTTP server with middleware and registered routes.
@@ -54,21 +56,27 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 
 	userRepo := repositories.NewUserRepository(pg)
 	tokenStore := repositories.NewTokenStore(rdb)
+	branchRepo := repositories.NewBranchRepository(pg)
+	questRepo := repositories.NewQuestRepository(pg)
 	jwtMgr := jwt.New(cfg.JWT)
 
 	authService := services.NewAuthService(userRepo, tokenStore, jwtMgr, cfg.GitHub)
 	userService := services.NewUserService(userRepo)
+	branchService := services.NewBranchService(branchRepo)
+	questService := services.NewQuestService(questRepo, branchRepo, userRepo, services.NoopQuestEventPublisher{})
 
 	s := &Server{
-		engine:  engine,
-		pg:      pg,
-		ch:      ch,
-		redis:   rdb,
-		log:     log,
-		auth:    handlers.NewAuthHandler(authService),
-		users:   handlers.NewUserHandler(userService),
-		authSvc: authService,
-		jwtMgr:  jwtMgr,
+		engine:   engine,
+		pg:       pg,
+		ch:       ch,
+		redis:    rdb,
+		log:      log,
+		auth:     handlers.NewAuthHandler(authService),
+		users:    handlers.NewUserHandler(userService),
+		branches: handlers.NewBranchHandler(branchService),
+		quests:   handlers.NewQuestHandler(questService),
+		authSvc:  authService,
+		jwtMgr:   jwtMgr,
 	}
 	s.routes()
 
@@ -104,6 +112,21 @@ func (s *Server) routes() {
 	protected.Use(middleware.Authenticate(s.jwtMgr, s.isBlacklisted))
 	protected.GET("/users/me", s.users.Me)
 	protected.PATCH("/users/me", s.users.UpdateMe)
+
+	protected.POST("/branches", s.branches.Create)
+	protected.GET("/branches", s.branches.List)
+	protected.GET("/branches/:id", s.branches.Get)
+	protected.PATCH("/branches/:id", s.branches.Update)
+	protected.DELETE("/branches/:id", s.branches.Delete)
+
+	protected.POST("/branches/:branch_id/quests", s.quests.Create)
+	protected.GET("/branches/:branch_id/quests", s.quests.List)
+	protected.GET("/quests/:id", s.quests.Get)
+	protected.PATCH("/quests/:id", s.quests.Update)
+	protected.DELETE("/quests/:id", s.quests.Delete)
+	protected.POST("/quests/:id/complete", s.quests.Complete)
+	protected.POST("/quests/:id/start", s.quests.Start)
+	protected.POST("/quests/:id/stop", s.quests.Stop)
 }
 
 func (s *Server) isBlacklisted(c *gin.Context, tokenID string) (bool, error) {

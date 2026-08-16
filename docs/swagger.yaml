@@ -1,5 +1,75 @@
 basePath: /api/v1
 definitions:
+  domain.Branch:
+    properties:
+      color:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      icon:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  domain.Quest:
+    properties:
+      branch_id:
+        type: integer
+      completed_at:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      duration_hours:
+        type: integer
+      id:
+        type: integer
+      reward_gold:
+        type: integer
+      reward_xp:
+        type: integer
+      started_at:
+        type: string
+      status:
+        $ref: '#/definitions/domain.QuestStatus'
+      title:
+        type: string
+      type:
+        $ref: '#/definitions/domain.QuestType'
+      updated_at:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  domain.QuestStatus:
+    enum:
+    - todo
+    - in_progress
+    - done
+    - cancelled
+    type: string
+    x-enum-varnames:
+    - QuestStatusTodo
+    - QuestStatusInProgress
+    - QuestStatusDone
+    - QuestStatusCancelled
+  domain.QuestType:
+    enum:
+    - simple
+    - timed
+    type: string
+    x-enum-varnames:
+    - QuestTypeSimple
+    - QuestTypeTimed
   domain.User:
     properties:
       avatar_url:
@@ -27,6 +97,37 @@ definitions:
     properties:
       error:
         type: string
+    type: object
+  handlers.createBranchRequest:
+    properties:
+      color:
+        type: string
+      description:
+        type: string
+      icon:
+        type: string
+      name:
+        type: string
+    required:
+    - name
+    type: object
+  handlers.createQuestRequest:
+    properties:
+      description:
+        type: string
+      duration_hours:
+        type: integer
+      reward_gold:
+        type: integer
+      reward_xp:
+        type: integer
+      title:
+        type: string
+      type:
+        $ref: '#/definitions/domain.QuestType'
+    required:
+    - title
+    - type
     type: object
   handlers.loginRequest:
     properties:
@@ -82,6 +183,17 @@ definitions:
       user:
         $ref: '#/definitions/domain.User'
     type: object
+  handlers.updateBranchRequest:
+    properties:
+      color:
+        type: string
+      description:
+        type: string
+      icon:
+        type: string
+      name:
+        type: string
+    type: object
   handlers.updateProfileRequest:
     properties:
       avatar_url:
@@ -89,6 +201,19 @@ definitions:
       nickname:
         type: string
       status:
+        type: string
+    type: object
+  handlers.updateQuestRequest:
+    properties:
+      description:
+        type: string
+      duration_hours:
+        type: integer
+      reward_gold:
+        type: integer
+      reward_xp:
+        type: integer
+      title:
         type: string
     type: object
 host: localhost:8080
@@ -245,6 +370,389 @@ paths:
       summary: Register a new account
       tags:
       - auth
+  /branches:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.Branch'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List the user's branches
+      tags:
+      - branches
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Branch payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createBranchRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.Branch'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a branch
+      tags:
+      - branches
+  /branches/{branch_id}/quests:
+    get:
+      parameters:
+      - description: Branch id
+        in: path
+        name: branch_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.Quest'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List quests in a branch
+      tags:
+      - quests
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Branch id
+        in: path
+        name: branch_id
+        required: true
+        type: integer
+      - description: Quest payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createQuestRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.Quest'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a quest in a branch
+      tags:
+      - quests
+  /branches/{id}:
+    delete:
+      parameters:
+      - description: Branch id
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a branch
+      tags:
+      - branches
+    get:
+      parameters:
+      - description: Branch id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Branch'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a branch by id
+      tags:
+      - branches
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Branch id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Branch fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateBranchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Branch'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a branch
+      tags:
+      - branches
+  /quests/{id}:
+    delete:
+      parameters:
+      - description: Quest id
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a quest
+      tags:
+      - quests
+    get:
+      parameters:
+      - description: Quest id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Quest'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a quest by id
+      tags:
+      - quests
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Quest id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Quest fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateQuestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Quest'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a quest
+      tags:
+      - quests
+  /quests/{id}/complete:
+    post:
+      parameters:
+      - description: Quest id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Quest'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Complete a simple quest and claim its reward
+      tags:
+      - quests
+  /quests/{id}/start:
+    post:
+      parameters:
+      - description: Quest id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Quest'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Start the time tracker of a timed quest
+      tags:
+      - quests
+  /quests/{id}/stop:
+    post:
+      parameters:
+      - description: Quest id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Quest'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Stop the time tracker and complete the timed quest
+      tags:
+      - quests
   /users/me:
     get:
       produces:

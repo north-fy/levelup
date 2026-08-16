@@ -156,3 +156,170 @@ func (f *fakeTokenStore) ValidateOAuthState(_ context.Context, state string) err
 	delete(f.states, state)
 	return nil
 }
+
+// fakeBranchStore is an in-memory implementation of BranchStore for tests.
+type fakeBranchStore struct {
+	mu       sync.Mutex
+	nextID   uint
+	byID     map[uint]*domain.Branch
+	byUserID map[uint][]*domain.Branch
+}
+
+func newFakeBranchStore() *fakeBranchStore {
+	return &fakeBranchStore{
+		byID:     make(map[uint]*domain.Branch),
+		byUserID: make(map[uint][]*domain.Branch),
+	}
+}
+
+func (f *fakeBranchStore) Create(_ context.Context, branch *domain.Branch) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	branch.ID = f.nextID
+	f.byID[branch.ID] = branch
+	f.byUserID[branch.UserID] = append(f.byUserID[branch.UserID], branch)
+	return nil
+}
+
+func (f *fakeBranchStore) GetByIDAndUser(_ context.Context, id, userID uint) (*domain.Branch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b, ok := f.byID[id]
+	if !ok || b.UserID != userID {
+		return nil, domain.ErrNotFound
+	}
+	return b, nil
+}
+
+func (f *fakeBranchStore) ListByUser(_ context.Context, userID uint) ([]domain.Branch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	items := f.byUserID[userID]
+	result := make([]domain.Branch, 0, len(items))
+	for _, b := range items {
+		result = append(result, *b)
+	}
+	return result, nil
+}
+
+func (f *fakeBranchStore) Update(_ context.Context, branch *domain.Branch) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byID[branch.ID] = branch
+	return nil
+}
+
+func (f *fakeBranchStore) Delete(_ context.Context, branch *domain.Branch) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.byID, branch.ID)
+	items := f.byUserID[branch.UserID]
+	filtered := items[:0]
+	for _, b := range items {
+		if b.ID != branch.ID {
+			filtered = append(filtered, b)
+		}
+	}
+	f.byUserID[branch.UserID] = filtered
+	return nil
+}
+
+// fakeQuestStore is an in-memory implementation of QuestStore for tests.
+type fakeQuestStore struct {
+	mu         sync.Mutex
+	nextID     uint
+	byID       map[uint]*domain.Quest
+	byBranchID map[uint][]*domain.Quest
+}
+
+func newFakeQuestStore() *fakeQuestStore {
+	return &fakeQuestStore{
+		byID:       make(map[uint]*domain.Quest),
+		byBranchID: make(map[uint][]*domain.Quest),
+	}
+}
+
+func (f *fakeQuestStore) Create(_ context.Context, quest *domain.Quest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	quest.ID = f.nextID
+	f.byID[quest.ID] = quest
+	f.byBranchID[quest.BranchID] = append(f.byBranchID[quest.BranchID], quest)
+	return nil
+}
+
+func (f *fakeQuestStore) GetByIDAndUser(_ context.Context, id, userID uint) (*domain.Quest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	q, ok := f.byID[id]
+	if !ok || q.UserID != userID {
+		return nil, domain.ErrNotFound
+	}
+	return q, nil
+}
+
+func (f *fakeQuestStore) ListByBranchAndUser(_ context.Context, branchID, userID uint) ([]domain.Quest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []domain.Quest
+	for _, q := range f.byBranchID[branchID] {
+		if q.UserID == userID {
+			result = append(result, *q)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeQuestStore) Update(_ context.Context, quest *domain.Quest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byID[quest.ID] = quest
+	return nil
+}
+
+func (f *fakeQuestStore) Delete(_ context.Context, quest *domain.Quest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.byID, quest.ID)
+	items := f.byBranchID[quest.BranchID]
+	filtered := items[:0]
+	for _, q := range items {
+		if q.ID != quest.ID {
+			filtered = append(filtered, q)
+		}
+	}
+	f.byBranchID[quest.BranchID] = filtered
+	return nil
+}
+
+func (f *fakeQuestStore) HasActiveTimer(_ context.Context, userID uint) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, q := range f.byID {
+		if q.UserID == userID && q.Status == domain.QuestStatusInProgress {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// recordingEventPublisher records published events for assertions.
+type recordingEventPublisher struct {
+	mu     sync.Mutex
+	events []domain.QuestCompletedEvent
+}
+
+func (r *recordingEventPublisher) PublishQuestCompleted(_ context.Context, event domain.QuestCompletedEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+	return nil
+}
+
+func (r *recordingEventPublisher) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.events)
+}

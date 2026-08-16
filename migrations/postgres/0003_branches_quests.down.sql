@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS quests;
+DROP TABLE IF EXISTS branches;
