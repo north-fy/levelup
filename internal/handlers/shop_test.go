@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 	"github.com/north-fy/levelup/internal/services"
 )
 
@@ -157,7 +158,7 @@ func setupShopRouter() *gin.Engine {
 
 	items := newHandlerShopItemStore(users)
 	purchases := &handlerPurchaseStore{}
-	shopSvc := services.NewShopService(items, purchases, users, handlerPurchasePublisher{})
+	shopSvc := services.NewShopService(items, purchases, users, handlerPurchasePublisher{}, cache.Noop{})
 
 	if _, err := shopSvc.Create(context.Background(), seller.ID, services.CreateShopItemInput{
 		Title:     "Magic Sword",
@@ -222,7 +223,7 @@ func buildShopRouterAsUser(userID uint) *gin.Engine {
 
 	items := newHandlerShopItemStore(users)
 	purchases := &handlerPurchaseStore{}
-	shopSvc := services.NewShopService(items, purchases, users, handlerPurchasePublisher{})
+	shopSvc := services.NewShopService(items, purchases, users, handlerPurchasePublisher{}, cache.Noop{})
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set("user_id", userID); c.Next() })

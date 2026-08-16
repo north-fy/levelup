@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 // CreateWorkshopInput holds the fields for publishing a roadmap.
@@ -25,13 +26,15 @@ type UpdateWorkshopInput struct {
 type WorkshopService struct {
 	workshops WorkshopStore
 	roadmaps  RoadmapStore
+	cache     cache.Cache
 }
 
 // NewWorkshopService creates the workshop service.
-func NewWorkshopService(workshops WorkshopStore, roadmaps RoadmapStore) *WorkshopService {
+func NewWorkshopService(workshops WorkshopStore, roadmaps RoadmapStore, c cache.Cache) *WorkshopService {
 	return &WorkshopService{
 		workshops: workshops,
 		roadmaps:  roadmaps,
+		cache:     c,
 	}
 }
 
@@ -61,15 +64,22 @@ func (s *WorkshopService) Create(ctx context.Context, authorID uint, input Creat
 	if err := s.workshops.Create(ctx, workshop); err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // cache invalidation is best-effort
+	_ = s.cache.Del(ctx, cache.WorkshopMineKey(authorID))
+	_ = s.cache.Del(ctx, cache.WorkshopKey())
 	return workshop, nil
 }
 
 // List returns published workshop roadmaps, or the author's own when mine is set.
 func (s *WorkshopService) List(ctx context.Context, userID uint, mine bool) ([]domain.WorkshopRoadmap, error) {
 	if mine {
-		return s.workshops.ListByAuthor(ctx, userID)
+		return getOrSet(ctx, s.cache, cache.WorkshopMineKey(userID), cache.WorkshopTTL, func() ([]domain.WorkshopRoadmap, error) {
+			return s.workshops.ListByAuthor(ctx, userID)
+		})
 	}
-	return s.workshops.ListPublished(ctx)
+	return getOrSet(ctx, s.cache, cache.WorkshopKey(), cache.WorkshopTTL, func() ([]domain.WorkshopRoadmap, error) {
+		return s.workshops.ListPublished(ctx)
+	})
 }
 
 // Update applies the provided changes to the author's workshop roadmap.
@@ -94,6 +104,9 @@ func (s *WorkshopService) Update(ctx context.Context, authorID, workshopID uint,
 	if err := s.workshops.Update(ctx, workshop); err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // cache invalidation is best-effort
+	_ = s.cache.Del(ctx, cache.WorkshopMineKey(authorID))
+	_ = s.cache.Del(ctx, cache.WorkshopKey())
 	return workshop, nil
 }
 

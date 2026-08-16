@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 const (
@@ -39,15 +40,17 @@ type QuestService struct {
 	branches BranchStore
 	users    UserStore
 	events   QuestEventPublisher
+	cache    cache.Cache
 }
 
 // NewQuestService creates the quest service.
-func NewQuestService(quests QuestStore, branches BranchStore, users UserStore, events QuestEventPublisher) *QuestService {
+func NewQuestService(quests QuestStore, branches BranchStore, users UserStore, events QuestEventPublisher, c cache.Cache) *QuestService {
 	return &QuestService{
 		quests:   quests,
 		branches: branches,
 		users:    users,
 		events:   events,
+		cache:    c,
 	}
 }
 
@@ -271,7 +274,11 @@ func (s *QuestService) awardRewards(ctx context.Context, userID uint, xp, gold i
 	}
 	user.XP += xp
 	user.Gold += gold
-	return s.users.Update(ctx, user)
+	if err := s.users.Update(ctx, user); err != nil {
+		return err
+	}
+	invalidateUser(ctx, s.cache, userID)
+	return nil
 }
 
 func validateQuestInput(input CreateQuestInput) error {

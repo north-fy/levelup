@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 // CreateRoadmapInput holds the fields for creating a roadmap.
@@ -46,14 +47,16 @@ type RoadmapService struct {
 	roadmaps RoadmapStore
 	users    UserStore
 	events   QuestEventPublisher
+	cache    cache.Cache
 }
 
 // NewRoadmapService creates the roadmap service.
-func NewRoadmapService(roadmaps RoadmapStore, users UserStore, events QuestEventPublisher) *RoadmapService {
+func NewRoadmapService(roadmaps RoadmapStore, users UserStore, events QuestEventPublisher, c cache.Cache) *RoadmapService {
 	return &RoadmapService{
 		roadmaps: roadmaps,
 		users:    users,
 		events:   events,
+		cache:    c,
 	}
 }
 
@@ -326,7 +329,11 @@ func (s *RoadmapService) awardRewards(ctx context.Context, userID uint, xp, gold
 	}
 	user.XP += xp
 	user.Gold += gold
-	return s.users.Update(ctx, user)
+	if err := s.users.Update(ctx, user); err != nil {
+		return err
+	}
+	invalidateUser(ctx, s.cache, userID)
+	return nil
 }
 
 func validateNodeInput(title string, nodeType domain.QuestType, xp, gold, duration int) error {

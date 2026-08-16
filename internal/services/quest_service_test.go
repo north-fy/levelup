@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 func newQuestTestEnv(t *testing.T) (*QuestService, *fakeUserStore, *fakeQuestStore, *recordingEventPublisher, *domain.Branch) {
@@ -25,7 +26,7 @@ func newQuestTestEnv(t *testing.T) (*QuestService, *fakeUserStore, *fakeQuestSto
 
 	quests := newFakeQuestStore()
 	publisher := &recordingEventPublisher{}
-	svc := NewQuestService(quests, branches, users, publisher)
+	svc := NewQuestService(quests, branches, users, publisher, cache.Noop{})
 
 	return svc, users, quests, publisher, branch
 }

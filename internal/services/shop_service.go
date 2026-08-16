@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 const (
@@ -33,15 +34,17 @@ type ShopService struct {
 	purchases PurchaseStore
 	users     UserStore
 	events    PurchaseEventPublisher
+	cache     cache.Cache
 }
 
 // NewShopService creates the shop service.
-func NewShopService(items ShopItemStore, purchases PurchaseStore, users UserStore, events PurchaseEventPublisher) *ShopService {
+func NewShopService(items ShopItemStore, purchases PurchaseStore, users UserStore, events PurchaseEventPublisher, c cache.Cache) *ShopService {
 	return &ShopService{
 		items:     items,
 		purchases: purchases,
 		users:     users,
 		events:    events,
+		cache:     c,
 	}
 }
 
@@ -68,15 +71,22 @@ func (s *ShopService) Create(ctx context.Context, sellerID uint, input CreateSho
 	if err := s.items.Create(ctx, item); err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // cache invalidation is best-effort
+	_ = s.cache.Del(ctx, cache.ShopItemsMineKey(sellerID))
+	_ = s.cache.Del(ctx, cache.ShopItemsKey())
 	return item, nil
 }
 
 // List returns active items, or the user's own items when mine is set.
 func (s *ShopService) List(ctx context.Context, userID uint, mine bool) ([]domain.ShopItem, error) {
 	if mine {
-		return s.items.ListByUser(ctx, userID)
+		return getOrSet(ctx, s.cache, cache.ShopItemsMineKey(userID), cache.ShopTTL, func() ([]domain.ShopItem, error) {
+			return s.items.ListByUser(ctx, userID)
+		})
 	}
-	return s.items.ListActive(ctx)
+	return getOrSet(ctx, s.cache, cache.ShopItemsKey(), cache.ShopTTL, func() ([]domain.ShopItem, error) {
+		return s.items.ListActive(ctx)
+	})
 }
 
 // Update applies the provided changes to the seller's own item.
@@ -109,6 +119,9 @@ func (s *ShopService) Update(ctx context.Context, sellerID, itemID uint, input U
 	if err := s.items.Update(ctx, item); err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // cache invalidation is best-effort
+	_ = s.cache.Del(ctx, cache.ShopItemsMineKey(sellerID))
+	_ = s.cache.Del(ctx, cache.ShopItemsKey())
 	return item, nil
 }
 
@@ -118,7 +131,13 @@ func (s *ShopService) Delete(ctx context.Context, sellerID, itemID uint) error {
 	if err != nil {
 		return err
 	}
-	return s.items.Deactivate(ctx, item)
+	if err := s.items.Deactivate(ctx, item); err != nil {
+		return err
+	}
+	//nolint:errcheck // cache invalidation is best-effort
+	_ = s.cache.Del(ctx, cache.ShopItemsMineKey(sellerID))
+	_ = s.cache.Del(ctx, cache.ShopItemsKey())
+	return nil
 }
 
 // Buy purchases an item: the buyer is debited and the seller credited atomically.
@@ -154,6 +173,8 @@ func (s *ShopService) Buy(ctx context.Context, buyerID, itemID uint) (*domain.Pu
 	}); err != nil {
 		return nil, err
 	}
+	invalidateUser(ctx, s.cache, buyerID)
+	invalidateUser(ctx, s.cache, item.SellerID)
 	return purchase, nil
 }
 

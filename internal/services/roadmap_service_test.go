@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 func newRoadmapTestEnv(t *testing.T) (*RoadmapService, *fakeUserStore, *fakeRoadmapStore, *recordingEventPublisher) {
@@ -17,7 +18,7 @@ func newRoadmapTestEnv(t *testing.T) (*RoadmapService, *fakeUserStore, *fakeRoad
 
 	roadmaps := newFakeRoadmapStore()
 	publisher := &recordingEventPublisher{}
-	svc := NewRoadmapService(roadmaps, users, publisher)
+	svc := NewRoadmapService(roadmaps, users, publisher, cache.Noop{})
 
 	return svc, users, roadmaps, publisher
 }

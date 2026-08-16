@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 // OverviewStats summarizes the user's account.
@@ -47,33 +48,36 @@ type QuestStat struct {
 type StatsService struct {
 	db    *sql.DB
 	users UserStore
+	cache cache.Cache
 }
 
 // NewStatsService creates the statistics service.
-func NewStatsService(db *sql.DB, users UserStore) *StatsService {
-	return &StatsService{db: db, users: users}
+func NewStatsService(db *sql.DB, users UserStore, c cache.Cache) *StatsService {
+	return &StatsService{db: db, users: users, cache: c}
 }
 
 // Overview returns the user's current totals.
 func (s *StatsService) Overview(ctx context.Context, userID uint) (*OverviewStats, error) {
-	user, err := s.users.GetByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
+	return getOrSet(ctx, s.cache, cache.OverviewKey(userID), cache.StatsTTL, func() (*OverviewStats, error) {
+		user, err := s.users.GetByID(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
 
-	var hours int
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT coalesce(sum(hours), 0) FROM quest_completed WHERE user_id = ?`, userID,
-	).Scan(&hours); err != nil {
-		return nil, err
-	}
+		var hours int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT coalesce(sum(hours), 0) FROM quest_completed WHERE user_id = ?`, userID,
+		).Scan(&hours); err != nil {
+			return nil, err
+		}
 
-	return &OverviewStats{
-		XP:    user.XP,
-		Gold:  user.Gold,
-		Level: domain.LevelFor(user.XP),
-		Hours: hours,
-	}, nil
+		return &OverviewStats{
+			XP:    user.XP,
+			Gold:  user.Gold,
+			Level: domain.LevelFor(user.XP),
+			Hours: hours,
+		}, nil
+	})
 }
 
 // Branches returns per-branch aggregations.

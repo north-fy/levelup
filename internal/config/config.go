@@ -10,13 +10,21 @@ import (
 
 // Config holds all application settings loaded from the environment.
 type Config struct {
-	App    App
-	Log    Log
-	DB     DB
-	CH     CH
-	Redis  Redis
-	JWT    JWT
-	GitHub GitHub
+	App       App
+	Log       Log
+	DB        DB
+	CH        CH
+	Redis     Redis
+	JWT       JWT
+	GitHub    GitHub
+	RateLimit RateLimit
+}
+
+// RateLimit contains request rate limiting settings.
+type RateLimit struct {
+	Global  int
+	PerUser int
+	Window  time.Duration
 }
 
 // App contains HTTP server settings.
@@ -150,6 +158,12 @@ func Load(paths ...string) (*Config, error) {
 		ClientID:     get("GITHUB_CLIENT_ID", ""),
 		ClientSecret: get("GITHUB_CLIENT_SECRET", ""),
 		RedirectURL:  get("GITHUB_REDIRECT_URL", ""),
+	}
+
+	cfg.RateLimit = RateLimit{
+		Global:  getInt("RATE_LIMIT_GLOBAL", 2000),
+		PerUser: getInt("RATE_LIMIT_PER_USER", 120),
+		Window:  getDuration("RATE_LIMIT_WINDOW", time.Minute),
 	}
 
 	return cfg, nil

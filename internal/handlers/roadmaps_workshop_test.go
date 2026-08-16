@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 	"github.com/north-fy/levelup/internal/services"
 )
 
@@ -238,8 +239,8 @@ func setupRoadmapRouter() *gin.Engine {
 
 	roadmaps := newHandlerRoadmapStore()
 	workshops := newHandlerWorkshopStore(roadmaps)
-	roadmapSvc := services.NewRoadmapService(roadmaps, users, handlerQuestPublisher{})
-	workshopSvc := services.NewWorkshopService(workshops, roadmaps)
+	roadmapSvc := services.NewRoadmapService(roadmaps, users, handlerQuestPublisher{}, cache.Noop{})
+	workshopSvc := services.NewWorkshopService(workshops, roadmaps, cache.Noop{})
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set("user_id", user.ID); c.Next() })

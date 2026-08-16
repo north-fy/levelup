@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 func TestUserServiceGetByID(t *testing.T) {
 	users := newFakeUserStore()
-	svc := NewUserService(users)
+	svc := NewUserService(users, cache.Noop{})
 
 	created := &domain.User{Email: "user@example.com", Nickname: "Hero", XP: 500}
 	if err := users.Create(context.Background(), created); err != nil {
@@ -30,7 +31,7 @@ func TestUserServiceGetByID(t *testing.T) {
 }
 
 func TestUserServiceGetByIDNotFound(t *testing.T) {
-	svc := NewUserService(newFakeUserStore())
+	svc := NewUserService(newFakeUserStore(), cache.Noop{})
 
 	_, err := svc.GetByID(context.Background(), 42)
 	if !errors.Is(err, domain.ErrNotFound) {
@@ -40,7 +41,7 @@ func TestUserServiceGetByIDNotFound(t *testing.T) {
 
 func TestUserServiceUpdate(t *testing.T) {
 	users := newFakeUserStore()
-	svc := NewUserService(users)
+	svc := NewUserService(users, cache.Noop{})
 
 	created := &domain.User{Email: "user@example.com", Nickname: "Hero"}
 	if err := users.Create(context.Background(), created); err != nil {
@@ -69,7 +70,7 @@ func TestUserServiceUpdate(t *testing.T) {
 
 func TestUserServiceUpdateEmptyNickname(t *testing.T) {
 	users := newFakeUserStore()
-	svc := NewUserService(users)
+	svc := NewUserService(users, cache.Noop{})
 
 	created := &domain.User{Email: "user@example.com", Nickname: "Hero"}
 	if err := users.Create(context.Background(), created); err != nil {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 func newWorkshopTestEnv(t *testing.T) (*WorkshopService, *RoadmapService, *fakeRoadmapStore, *fakeUserStore) {
@@ -19,9 +20,9 @@ func newWorkshopTestEnv(t *testing.T) (*WorkshopService, *RoadmapService, *fakeR
 	}
 
 	roadmaps := newFakeRoadmapStore()
-	roadmapSvc := NewRoadmapService(roadmaps, users, &recordingEventPublisher{})
+	roadmapSvc := NewRoadmapService(roadmaps, users, &recordingEventPublisher{}, cache.Noop{})
 	workshops := newFakeWorkshopStore(roadmaps)
-	workshopSvc := NewWorkshopService(workshops, roadmaps)
+	workshopSvc := NewWorkshopService(workshops, roadmaps, cache.Noop{})
 
 	return workshopSvc, roadmapSvc, roadmaps, users
 }

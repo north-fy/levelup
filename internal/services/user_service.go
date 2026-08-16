@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 // UpdateProfileInput holds the editable profile fields.
@@ -18,20 +19,27 @@ type UpdateProfileInput struct {
 // UserService manages user profile operations.
 type UserService struct {
 	users UserStore
+	cache cache.Cache
 }
 
 // NewUserService creates the user service.
-func NewUserService(users UserStore) *UserService {
-	return &UserService{users: users}
+func NewUserService(users UserStore, c cache.Cache) *UserService {
+	return &UserService{users: users, cache: c}
 }
 
-// GetByID returns a user by id.
+// GetByID returns a user by id, caching the profile.
 func (s *UserService) GetByID(ctx context.Context, id uint) (*domain.User, error) {
-	user, err := s.users.GetByID(ctx, id)
+	user, err := getOrSet(ctx, s.cache, cache.ProfileKey(id), cache.ProfileTTL, func() (*domain.User, error) {
+		u, err := s.users.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		u.Level = domain.LevelFor(u.XP)
+		return u, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	user.Level = domain.LevelFor(user.XP)
 	return user, nil
 }
 
@@ -60,6 +68,7 @@ func (s *UserService) Update(ctx context.Context, userID uint, input UpdateProfi
 		return nil, err
 	}
 
+	invalidateUser(ctx, s.cache, userID)
 	user.Level = domain.LevelFor(user.XP)
 	return user, nil
 }

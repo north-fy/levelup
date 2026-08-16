@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 	"github.com/north-fy/levelup/internal/services"
 )
 
@@ -163,7 +164,7 @@ func setupQuestRouter() *gin.Engine {
 	branches := newHandlerBranchStore()
 	quests := newHandlerQuestStore()
 	branchSvc := services.NewBranchService(branches)
-	questSvc := services.NewQuestService(quests, branches, users, noopQuestPublisher{})
+	questSvc := services.NewQuestService(quests, branches, users, noopQuestPublisher{}, cache.Noop{})
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set("user_id", user.ID); c.Next() })

@@ -21,31 +21,36 @@ import (
 	"github.com/north-fy/levelup/internal/handlers"
 	"github.com/north-fy/levelup/internal/middleware"
 	"github.com/north-fy/levelup/internal/outbox"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 	"github.com/north-fy/levelup/internal/pkg/database"
 	"github.com/north-fy/levelup/internal/pkg/jwt"
+	"github.com/north-fy/levelup/internal/pkg/ratelimit"
 	"github.com/north-fy/levelup/internal/repositories"
 	"github.com/north-fy/levelup/internal/services"
 )
 
 // Server wraps the Gin engine and the underlying http.Server.
 type Server struct {
-	engine   *gin.Engine
-	http     *http.Server
-	pg       *gorm.DB
-	ch       *sql.DB
-	redis    *redis.Client
-	log      *zap.Logger
-	auth     *handlers.AuthHandler
-	users    *handlers.UserHandler
-	branches *handlers.BranchHandler
-	quests   *handlers.QuestHandler
-	shop     *handlers.ShopHandler
-	roadmaps *handlers.RoadmapHandler
-	workshop *handlers.WorkshopHandler
-	stats    *handlers.StatsHandler
-	authSvc  *services.AuthService
-	jwtMgr   *jwt.Manager
-	flusher  *outbox.Flusher
+	engine           *gin.Engine
+	http             *http.Server
+	pg               *gorm.DB
+	ch               *sql.DB
+	redis            *redis.Client
+	log              *zap.Logger
+	auth             *handlers.AuthHandler
+	users            *handlers.UserHandler
+	branches         *handlers.BranchHandler
+	quests           *handlers.QuestHandler
+	shop             *handlers.ShopHandler
+	roadmaps         *handlers.RoadmapHandler
+	workshop         *handlers.WorkshopHandler
+	stats            *handlers.StatsHandler
+	authSvc          *services.AuthService
+	jwtMgr           *jwt.Manager
+	flusher          *outbox.Flusher
+	limiter          ratelimit.Limiter
+	rateLimitPerUser int
+	rateLimitWindow  time.Duration
 }
 
 // New builds the HTTP server with middleware and registered routes.
@@ -60,6 +65,9 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 		middleware.Metrics(),
 	)
 
+	limiter := ratelimit.NewRedisLimiter(rdb)
+	engine.Use(middleware.RateLimitGlobal(limiter, cfg.RateLimit.Global, cfg.RateLimit.Window))
+
 	userRepo := repositories.NewUserRepository(pg)
 	tokenStore := repositories.NewTokenStore(rdb)
 	branchRepo := repositories.NewBranchRepository(pg)
@@ -71,32 +79,37 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 	outboxRepo := repositories.NewOutboxRepository(pg)
 	jwtMgr := jwt.New(cfg.JWT)
 
+	cacheStore := cache.NewRedisCache(rdb)
+
 	authService := services.NewAuthService(userRepo, tokenStore, jwtMgr, cfg.GitHub)
-	userService := services.NewUserService(userRepo)
+	userService := services.NewUserService(userRepo, cacheStore)
 	branchService := services.NewBranchService(branchRepo)
-	questService := services.NewQuestService(questRepo, branchRepo, userRepo, services.NewOutboxQuestPublisher(outboxRepo))
-	shopService := services.NewShopService(shopItemRepo, purchaseRepo, userRepo, services.NewOutboxPurchasePublisher(outboxRepo))
-	roadmapService := services.NewRoadmapService(roadmapRepo, userRepo, services.NewOutboxQuestPublisher(outboxRepo))
-	workshopService := services.NewWorkshopService(workshopRepo, roadmapRepo)
-	statsService := services.NewStatsService(ch, userRepo)
+	questService := services.NewQuestService(questRepo, branchRepo, userRepo, services.NewOutboxQuestPublisher(outboxRepo), cacheStore)
+	shopService := services.NewShopService(shopItemRepo, purchaseRepo, userRepo, services.NewOutboxPurchasePublisher(outboxRepo), cacheStore)
+	roadmapService := services.NewRoadmapService(roadmapRepo, userRepo, services.NewOutboxQuestPublisher(outboxRepo), cacheStore)
+	workshopService := services.NewWorkshopService(workshopRepo, roadmapRepo, cacheStore)
+	statsService := services.NewStatsService(ch, userRepo, cacheStore)
 
 	s := &Server{
-		engine:   engine,
-		pg:       pg,
-		ch:       ch,
-		redis:    rdb,
-		log:      log,
-		auth:     handlers.NewAuthHandler(authService),
-		users:    handlers.NewUserHandler(userService),
-		branches: handlers.NewBranchHandler(branchService),
-		quests:   handlers.NewQuestHandler(questService),
-		shop:     handlers.NewShopHandler(shopService),
-		roadmaps: handlers.NewRoadmapHandler(roadmapService),
-		workshop: handlers.NewWorkshopHandler(workshopService),
-		stats:    handlers.NewStatsHandler(statsService),
-		authSvc:  authService,
-		jwtMgr:   jwtMgr,
-		flusher:  outbox.NewFlusher(outboxRepo, ch, log),
+		engine:           engine,
+		pg:               pg,
+		ch:               ch,
+		redis:            rdb,
+		log:              log,
+		auth:             handlers.NewAuthHandler(authService),
+		users:            handlers.NewUserHandler(userService),
+		branches:         handlers.NewBranchHandler(branchService),
+		quests:           handlers.NewQuestHandler(questService),
+		shop:             handlers.NewShopHandler(shopService),
+		roadmaps:         handlers.NewRoadmapHandler(roadmapService),
+		workshop:         handlers.NewWorkshopHandler(workshopService),
+		stats:            handlers.NewStatsHandler(statsService),
+		authSvc:          authService,
+		jwtMgr:           jwtMgr,
+		flusher:          outbox.NewFlusher(outboxRepo, ch, log),
+		limiter:          limiter,
+		rateLimitPerUser: cfg.RateLimit.PerUser,
+		rateLimitWindow:  cfg.RateLimit.Window,
 	}
 	s.routes()
 
@@ -130,6 +143,7 @@ func (s *Server) routes() {
 
 	protected := api.Group("")
 	protected.Use(middleware.Authenticate(s.jwtMgr, s.isBlacklisted))
+	protected.Use(middleware.RateLimitUser(s.limiter, s.rateLimitPerUser, s.rateLimitWindow))
 	protected.GET("/users/me", s.users.Me)
 	protected.PATCH("/users/me", s.users.UpdateMe)
 

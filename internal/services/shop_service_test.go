@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/north-fy/levelup/internal/domain"
+	"github.com/north-fy/levelup/internal/pkg/cache"
 )
 
 func newShopTestEnv(t *testing.T) (*ShopService, *fakeUserStore, *fakeShopItemStore, *recordingPurchasePublisher) {
@@ -23,7 +24,7 @@ func newShopTestEnv(t *testing.T) (*ShopService, *fakeUserStore, *fakeShopItemSt
 	items := newFakeShopItemStore(users)
 	purchases := &fakePurchaseStore{}
 	publisher := &recordingPurchasePublisher{}
-	svc := NewShopService(items, purchases, users, publisher)
+	svc := NewShopService(items, purchases, users, publisher, cache.Noop{})
 
 	return svc, users, items, publisher
 }
