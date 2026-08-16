@@ -41,6 +41,28 @@ type QuestEventPublisher interface {
 	PublishQuestCompleted(ctx context.Context, event domain.QuestCompletedEvent) error
 }
 
+// ShopItemStore abstracts shop item persistence and the buy transaction.
+type ShopItemStore interface {
+	Create(ctx context.Context, item *domain.ShopItem) error
+	GetByID(ctx context.Context, id uint) (*domain.ShopItem, error)
+	GetByIDAndSeller(ctx context.Context, id, sellerID uint) (*domain.ShopItem, error)
+	ListActive(ctx context.Context) ([]domain.ShopItem, error)
+	ListByUser(ctx context.Context, userID uint) ([]domain.ShopItem, error)
+	Update(ctx context.Context, item *domain.ShopItem) error
+	Deactivate(ctx context.Context, item *domain.ShopItem) error
+	Buy(ctx context.Context, itemID, buyerID uint) (*domain.Purchase, error)
+}
+
+// PurchaseStore abstracts purchase history persistence.
+type PurchaseStore interface {
+	ListByBuyer(ctx context.Context, buyerID uint) ([]domain.Purchase, error)
+}
+
+// PurchaseEventPublisher forwards completed-purchase events for statistics.
+type PurchaseEventPublisher interface {
+	PublishPurchase(ctx context.Context, event domain.PurchaseEvent) error
+}
+
 // TokenStore abstracts ephemeral auth data persistence.
 type TokenStore interface {
 	SaveRefresh(ctx context.Context, tokenID string, userID uint, ttl time.Duration) error

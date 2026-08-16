@@ -19,6 +19,21 @@ definitions:
       user_id:
         type: integer
     type: object
+  domain.Purchase:
+    properties:
+      buyer_id:
+        type: integer
+      created_at:
+        type: string
+      id:
+        type: integer
+      item_id:
+        type: integer
+      price:
+        type: integer
+      seller_id:
+        type: integer
+    type: object
   domain.Quest:
     properties:
       branch_id:
@@ -70,6 +85,25 @@ definitions:
     x-enum-varnames:
     - QuestTypeSimple
     - QuestTypeTimed
+  domain.ShopItem:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      price_gold:
+        type: integer
+      seller_id:
+        type: integer
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
   domain.User:
     properties:
       avatar_url:
@@ -128,6 +162,17 @@ definitions:
     required:
     - title
     - type
+    type: object
+  handlers.createShopItemRequest:
+    properties:
+      description:
+        type: string
+      price_gold:
+        type: integer
+      title:
+        type: string
+    required:
+    - title
     type: object
   handlers.loginRequest:
     properties:
@@ -212,6 +257,15 @@ definitions:
       reward_gold:
         type: integer
       reward_xp:
+        type: integer
+      title:
+        type: string
+    type: object
+  handlers.updateShopItemRequest:
+    properties:
+      description:
+        type: string
+      price_gold:
         type: integer
       title:
         type: string
@@ -753,6 +807,180 @@ paths:
       summary: Stop the time tracker and complete the timed quest
       tags:
       - quests
+  /shop/items:
+    get:
+      parameters:
+      - description: List only the current user's items
+        in: query
+        name: mine
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.ShopItem'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List shop items
+      tags:
+      - shop
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Item payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createShopItemRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.ShopItem'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List an item for sale
+      tags:
+      - shop
+  /shop/items/{id}:
+    delete:
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Deactivate one of the user's items
+      tags:
+      - shop
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Item fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateShopItemRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.ShopItem'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update one of the user's items
+      tags:
+      - shop
+  /shop/items/{id}/buy:
+    post:
+      parameters:
+      - description: Item id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Purchase'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Buy an item
+      tags:
+      - shop
+  /shop/purchases:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.Purchase'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List the current user's purchase history
+      tags:
+      - shop
   /users/me:
     get:
       produces:

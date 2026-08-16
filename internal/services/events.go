@@ -14,3 +14,12 @@ type NoopQuestEventPublisher struct{}
 func (NoopQuestEventPublisher) PublishQuestCompleted(context.Context, domain.QuestCompletedEvent) error {
 	return nil
 }
+
+// NoopPurchaseEventPublisher drops completed-purchase events.
+// Replaced by the outbox-based publisher in the statistics phase.
+type NoopPurchaseEventPublisher struct{}
+
+// PublishPurchase discards the event.
+func (NoopPurchaseEventPublisher) PublishPurchase(context.Context, domain.PurchaseEvent) error {
+	return nil
+}

@@ -38,6 +38,7 @@ type Server struct {
 	users    *handlers.UserHandler
 	branches *handlers.BranchHandler
 	quests   *handlers.QuestHandler
+	shop     *handlers.ShopHandler
 	authSvc  *services.AuthService
 	jwtMgr   *jwt.Manager
 }
@@ -58,12 +59,15 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 	tokenStore := repositories.NewTokenStore(rdb)
 	branchRepo := repositories.NewBranchRepository(pg)
 	questRepo := repositories.NewQuestRepository(pg)
+	shopItemRepo := repositories.NewShopItemRepository(pg)
+	purchaseRepo := repositories.NewPurchaseRepository(pg)
 	jwtMgr := jwt.New(cfg.JWT)
 
 	authService := services.NewAuthService(userRepo, tokenStore, jwtMgr, cfg.GitHub)
 	userService := services.NewUserService(userRepo)
 	branchService := services.NewBranchService(branchRepo)
 	questService := services.NewQuestService(questRepo, branchRepo, userRepo, services.NoopQuestEventPublisher{})
+	shopService := services.NewShopService(shopItemRepo, purchaseRepo, userRepo, services.NoopPurchaseEventPublisher{})
 
 	s := &Server{
 		engine:   engine,
@@ -75,6 +79,7 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 		users:    handlers.NewUserHandler(userService),
 		branches: handlers.NewBranchHandler(branchService),
 		quests:   handlers.NewQuestHandler(questService),
+		shop:     handlers.NewShopHandler(shopService),
 		authSvc:  authService,
 		jwtMgr:   jwtMgr,
 	}
@@ -127,6 +132,13 @@ func (s *Server) routes() {
 	protected.POST("/quests/:id/complete", s.quests.Complete)
 	protected.POST("/quests/:id/start", s.quests.Start)
 	protected.POST("/quests/:id/stop", s.quests.Stop)
+
+	protected.POST("/shop/items", s.shop.Create)
+	protected.GET("/shop/items", s.shop.List)
+	protected.PATCH("/shop/items/:id", s.shop.Update)
+	protected.DELETE("/shop/items/:id", s.shop.Delete)
+	protected.POST("/shop/items/:id/buy", s.shop.Buy)
+	protected.GET("/shop/purchases", s.shop.Purchases)
 }
 
 func (s *Server) isBlacklisted(c *gin.Context, tokenID string) (bool, error) {

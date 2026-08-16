@@ -35,7 +35,10 @@ func respondError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrQuestAlreadyDone),
 		errors.Is(err, domain.ErrQuestAlreadyStarted),
 		errors.Is(err, domain.ErrQuestNotInProgress),
-		errors.Is(err, domain.ErrActiveTimerConflict):
+		errors.Is(err, domain.ErrActiveTimerConflict),
+		errors.Is(err, domain.ErrCannotBuyOwnItem),
+		errors.Is(err, domain.ErrItemNotActive),
+		errors.Is(err, domain.ErrNotEnoughGold):
 		c.JSON(http.StatusConflict, ErrorResponse{Error: err.Error()})
 	case errors.Is(err, domain.ErrTimedQuestIncomplete):
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

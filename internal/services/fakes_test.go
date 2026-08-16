@@ -323,3 +323,175 @@ func (r *recordingEventPublisher) count() int {
 	defer r.mu.Unlock()
 	return len(r.events)
 }
+
+// fakeShopItemStore is an in-memory implementation of ShopItemStore for tests.
+type fakeShopItemStore struct {
+	mu         sync.Mutex
+	users      *fakeUserStore
+	nextID     uint
+	nextPurID  uint
+	byID       map[uint]*domain.ShopItem
+	bySellerID map[uint][]*domain.ShopItem
+	purchases  []domain.Purchase
+}
+
+func newFakeShopItemStore(users *fakeUserStore) *fakeShopItemStore {
+	return &fakeShopItemStore{
+		users:      users,
+		byID:       make(map[uint]*domain.ShopItem),
+		bySellerID: make(map[uint][]*domain.ShopItem),
+	}
+}
+
+func (f *fakeShopItemStore) Create(_ context.Context, item *domain.ShopItem) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	item.ID = f.nextID
+	f.byID[item.ID] = item
+	f.bySellerID[item.SellerID] = append(f.bySellerID[item.SellerID], item)
+	return nil
+}
+
+func (f *fakeShopItemStore) GetByID(_ context.Context, id uint) (*domain.ShopItem, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	item, ok := f.byID[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return item, nil
+}
+
+func (f *fakeShopItemStore) GetByIDAndSeller(_ context.Context, id, sellerID uint) (*domain.ShopItem, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	item, ok := f.byID[id]
+	if !ok || item.SellerID != sellerID {
+		return nil, domain.ErrNotFound
+	}
+	return item, nil
+}
+
+func (f *fakeShopItemStore) ListActive(_ context.Context) ([]domain.ShopItem, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []domain.ShopItem
+	for _, item := range f.byID {
+		if item.IsActive {
+			result = append(result, *item)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeShopItemStore) ListByUser(_ context.Context, userID uint) ([]domain.ShopItem, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []domain.ShopItem
+	for _, item := range f.bySellerID[userID] {
+		result = append(result, *item)
+	}
+	return result, nil
+}
+
+func (f *fakeShopItemStore) Update(_ context.Context, item *domain.ShopItem) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byID[item.ID] = item
+	return nil
+}
+
+func (f *fakeShopItemStore) Deactivate(_ context.Context, item *domain.ShopItem) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	item.IsActive = false
+	f.byID[item.ID] = item
+	return nil
+}
+
+func (f *fakeShopItemStore) Buy(_ context.Context, itemID, buyerID uint) (*domain.Purchase, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	item, ok := f.byID[itemID]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	if !item.IsActive {
+		return nil, domain.ErrItemNotActive
+	}
+	if item.SellerID == buyerID {
+		return nil, domain.ErrCannotBuyOwnItem
+	}
+
+	buyer, err := f.users.GetByID(context.Background(), buyerID)
+	if err != nil {
+		return nil, err
+	}
+	if buyer.Gold < item.PriceGold {
+		return nil, domain.ErrNotEnoughGold
+	}
+	seller, err := f.users.GetByID(context.Background(), item.SellerID)
+	if err != nil {
+		return nil, err
+	}
+
+	buyer.Gold -= item.PriceGold
+	seller.Gold += item.PriceGold
+	if err := f.users.Update(context.Background(), buyer); err != nil {
+		return nil, err
+	}
+	if err := f.users.Update(context.Background(), seller); err != nil {
+		return nil, err
+	}
+
+	f.nextPurID++
+	purchase := &domain.Purchase{
+		ID:        f.nextPurID,
+		ItemID:    item.ID,
+		BuyerID:   buyerID,
+		SellerID:  item.SellerID,
+		Price:     item.PriceGold,
+		CreatedAt: time.Now(),
+	}
+	f.purchases = append(f.purchases, *purchase)
+	return purchase, nil
+}
+
+// fakePurchaseStore is an in-memory implementation of PurchaseStore for tests.
+type fakePurchaseStore struct {
+	mu        sync.Mutex
+	purchases []domain.Purchase
+}
+
+func (f *fakePurchaseStore) ListByBuyer(_ context.Context, buyerID uint) ([]domain.Purchase, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []domain.Purchase
+	for _, p := range f.purchases {
+		if p.BuyerID == buyerID {
+			result = append(result, p)
+		}
+	}
+	return result, nil
+}
+
+// recordingPurchasePublisher records published purchase events for assertions.
+type recordingPurchasePublisher struct {
+	mu     sync.Mutex
+	events []domain.PurchaseEvent
+}
+
+func (r *recordingPurchasePublisher) PublishPurchase(_ context.Context, event domain.PurchaseEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+	return nil
+}
+
+func (r *recordingPurchasePublisher) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.events)
+}

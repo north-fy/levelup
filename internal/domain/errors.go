@@ -18,6 +18,9 @@ var (
 	ErrQuestNotInProgress   = errors.New("quest is not in progress")
 	ErrActiveTimerConflict  = errors.New("another quest is already in progress")
 	ErrTimedQuestIncomplete = errors.New("timed quest requires start/stop")
+	ErrCannotBuyOwnItem     = errors.New("cannot buy your own item")
+	ErrItemNotActive        = errors.New("item is not active")
+	ErrNotEnoughGold        = errors.New("not enough gold")
 )
 
 // ValidationError indicates invalid client input.
