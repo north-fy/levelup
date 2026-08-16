@@ -458,6 +458,56 @@ definitions:
       title:
         type: string
     type: object
+  services.BranchStat:
+    properties:
+      branch_id:
+        type: integer
+      completed:
+        type: integer
+      gold:
+        type: integer
+      hours:
+        type: integer
+      xp:
+        type: integer
+    type: object
+  services.OverviewStats:
+    properties:
+      gold:
+        type: integer
+      hours:
+        type: integer
+      level:
+        type: integer
+      xp:
+        type: integer
+    type: object
+  services.QuestStat:
+    properties:
+      completed:
+        type: integer
+      date:
+        type: string
+      gold:
+        type: integer
+      hours:
+        type: integer
+      xp:
+        type: integer
+    type: object
+  services.RoadmapStat:
+    properties:
+      completed:
+        type: integer
+      gold:
+        type: integer
+      hours:
+        type: integer
+      roadmap_id:
+        type: integer
+      xp:
+        type: integer
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -1431,6 +1481,93 @@ paths:
       summary: List the current user's purchase history
       tags:
       - shop
+  /stats/branches:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/services.BranchStat'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get per-branch statistics
+      tags:
+      - stats
+  /stats/overview:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.OverviewStats'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get the user's overall statistics
+      tags:
+      - stats
+  /stats/quests:
+    get:
+      parameters:
+      - description: day, week or month
+        enum:
+        - day
+        - week
+        - month
+        in: query
+        name: period
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/services.QuestStat'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get daily quest statistics for a period
+      tags:
+      - stats
+  /stats/roadmaps:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/services.RoadmapStat'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get per-roadmap statistics
+      tags:
+      - stats
   /users/me:
     get:
       produces:

@@ -68,6 +68,8 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	srv.StartBackground(ctx)
+
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("server starting", zap.String("addr", srv.Addr()))

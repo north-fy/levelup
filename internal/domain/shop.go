@@ -26,8 +26,8 @@ type Purchase struct {
 
 // PurchaseEvent is emitted when an item is bought.
 type PurchaseEvent struct {
-	UserID      uint
-	ItemID      uint
-	Price       int
-	PurchasedAt time.Time
+	UserID      uint      `json:"user_id"`
+	ItemID      uint      `json:"item_id"`
+	Price       int       `json:"price"`
+	PurchasedAt time.Time `json:"purchased_at"`
 }

@@ -91,6 +91,13 @@ type WorkshopStore interface {
 	InstallCopy(ctx context.Context, installerID uint, workshop *domain.WorkshopRoadmap) (*domain.Roadmap, error)
 }
 
+// OutboxStore abstracts deferred event persistence.
+type OutboxStore interface {
+	Insert(ctx context.Context, eventType, payload string) error
+	Pending(ctx context.Context, limit int) ([]domain.OutboxEvent, error)
+	MarkProcessed(ctx context.Context, id uint) error
+}
+
 // TokenStore abstracts ephemeral auth data persistence.
 type TokenStore interface {
 	SaveRefresh(ctx context.Context, tokenID string, userID uint, ttl time.Duration) error

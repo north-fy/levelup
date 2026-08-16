@@ -51,12 +51,12 @@ func (q *Quest) IsTimed() bool {
 
 // QuestCompletedEvent is emitted when a quest or roadmap node is finished.
 type QuestCompletedEvent struct {
-	UserID      uint
-	QuestID     uint
-	BranchID    uint
-	RoadmapID   uint
-	XP          int
-	Gold        int
-	Hours       int
-	CompletedAt time.Time
+	UserID      uint      `json:"user_id"`
+	QuestID     uint      `json:"quest_id"`
+	BranchID    uint      `json:"branch_id"`
+	RoadmapID   uint      `json:"roadmap_id"`
+	XP          int       `json:"xp"`
+	Gold        int       `json:"gold"`
+	Hours       int       `json:"hours"`
+	CompletedAt time.Time `json:"completed_at"`
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/north-fy/levelup/internal/config"
 	"github.com/north-fy/levelup/internal/handlers"
 	"github.com/north-fy/levelup/internal/middleware"
+	"github.com/north-fy/levelup/internal/outbox"
 	"github.com/north-fy/levelup/internal/pkg/database"
 	"github.com/north-fy/levelup/internal/pkg/jwt"
 	"github.com/north-fy/levelup/internal/repositories"
@@ -41,8 +42,10 @@ type Server struct {
 	shop     *handlers.ShopHandler
 	roadmaps *handlers.RoadmapHandler
 	workshop *handlers.WorkshopHandler
+	stats    *handlers.StatsHandler
 	authSvc  *services.AuthService
 	jwtMgr   *jwt.Manager
+	flusher  *outbox.Flusher
 }
 
 // New builds the HTTP server with middleware and registered routes.
@@ -65,15 +68,17 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 	purchaseRepo := repositories.NewPurchaseRepository(pg)
 	roadmapRepo := repositories.NewRoadmapRepository(pg)
 	workshopRepo := repositories.NewWorkshopRepository(pg)
+	outboxRepo := repositories.NewOutboxRepository(pg)
 	jwtMgr := jwt.New(cfg.JWT)
 
 	authService := services.NewAuthService(userRepo, tokenStore, jwtMgr, cfg.GitHub)
 	userService := services.NewUserService(userRepo)
 	branchService := services.NewBranchService(branchRepo)
-	questService := services.NewQuestService(questRepo, branchRepo, userRepo, services.NoopQuestEventPublisher{})
-	shopService := services.NewShopService(shopItemRepo, purchaseRepo, userRepo, services.NoopPurchaseEventPublisher{})
-	roadmapService := services.NewRoadmapService(roadmapRepo, userRepo, services.NoopQuestEventPublisher{})
+	questService := services.NewQuestService(questRepo, branchRepo, userRepo, services.NewOutboxQuestPublisher(outboxRepo))
+	shopService := services.NewShopService(shopItemRepo, purchaseRepo, userRepo, services.NewOutboxPurchasePublisher(outboxRepo))
+	roadmapService := services.NewRoadmapService(roadmapRepo, userRepo, services.NewOutboxQuestPublisher(outboxRepo))
 	workshopService := services.NewWorkshopService(workshopRepo, roadmapRepo)
+	statsService := services.NewStatsService(ch, userRepo)
 
 	s := &Server{
 		engine:   engine,
@@ -88,8 +93,10 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 		shop:     handlers.NewShopHandler(shopService),
 		roadmaps: handlers.NewRoadmapHandler(roadmapService),
 		workshop: handlers.NewWorkshopHandler(workshopService),
+		stats:    handlers.NewStatsHandler(statsService),
 		authSvc:  authService,
 		jwtMgr:   jwtMgr,
+		flusher:  outbox.NewFlusher(outboxRepo, ch, log),
 	}
 	s.routes()
 
@@ -161,6 +168,18 @@ func (s *Server) routes() {
 	protected.GET("/workshop/roadmaps", s.workshop.List)
 	protected.PATCH("/workshop/roadmaps/:id", s.workshop.Update)
 	protected.POST("/workshop/roadmaps/:id/install", s.workshop.Install)
+
+	protected.GET("/stats/overview", s.stats.Overview)
+	protected.GET("/stats/branches", s.stats.Branches)
+	protected.GET("/stats/roadmaps", s.stats.Roadmaps)
+	protected.GET("/stats/quests", s.stats.Quests)
+}
+
+// StartBackground launches the outbox flusher.
+func (s *Server) StartBackground(ctx context.Context) {
+	if s.flusher != nil {
+		go s.flusher.Run(ctx)
+	}
 }
 
 func (s *Server) isBlacklisted(c *gin.Context, tokenID string) (bool, error) {
