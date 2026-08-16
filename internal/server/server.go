@@ -10,22 +10,34 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	_ "github.com/north-fy/levelup/docs"
+
 	"github.com/north-fy/levelup/internal/config"
+	"github.com/north-fy/levelup/internal/handlers"
 	"github.com/north-fy/levelup/internal/middleware"
 	"github.com/north-fy/levelup/internal/pkg/database"
+	"github.com/north-fy/levelup/internal/pkg/jwt"
+	"github.com/north-fy/levelup/internal/repositories"
+	"github.com/north-fy/levelup/internal/services"
 )
 
 // Server wraps the Gin engine and the underlying http.Server.
 type Server struct {
-	engine *gin.Engine
-	http   *http.Server
-	pg     *gorm.DB
-	ch     *sql.DB
-	redis  *redis.Client
-	log    *zap.Logger
+	engine  *gin.Engine
+	http    *http.Server
+	pg      *gorm.DB
+	ch      *sql.DB
+	redis   *redis.Client
+	log     *zap.Logger
+	auth    *handlers.AuthHandler
+	users   *handlers.UserHandler
+	authSvc *services.AuthService
+	jwtMgr  *jwt.Manager
 }
 
 // New builds the HTTP server with middleware and registered routes.
@@ -40,7 +52,24 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 		middleware.Metrics(),
 	)
 
-	s := &Server{engine: engine, pg: pg, ch: ch, redis: rdb, log: log}
+	userRepo := repositories.NewUserRepository(pg)
+	tokenStore := repositories.NewTokenStore(rdb)
+	jwtMgr := jwt.New(cfg.JWT)
+
+	authService := services.NewAuthService(userRepo, tokenStore, jwtMgr, cfg.GitHub)
+	userService := services.NewUserService(userRepo)
+
+	s := &Server{
+		engine:  engine,
+		pg:      pg,
+		ch:      ch,
+		redis:   rdb,
+		log:     log,
+		auth:    handlers.NewAuthHandler(authService),
+		users:   handlers.NewUserHandler(userService),
+		authSvc: authService,
+		jwtMgr:  jwtMgr,
+	}
 	s.routes()
 
 	httpServer := &http.Server{
@@ -59,9 +88,26 @@ func (s *Server) routes() {
 	s.engine.GET("/healthz", s.healthz)
 	s.engine.GET("/readyz", s.readyz)
 	s.engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	s.engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	api := s.engine.Group("/api/v1")
-	_ = api
+
+	auth := api.Group("/auth")
+	auth.POST("/register", s.auth.Register)
+	auth.POST("/login", s.auth.Login)
+	auth.POST("/refresh", s.auth.Refresh)
+	auth.POST("/logout", s.auth.Logout)
+	auth.GET("/github/redirect", s.auth.GitHubRedirect)
+	auth.GET("/github/callback", s.auth.GitHubCallback)
+
+	protected := api.Group("")
+	protected.Use(middleware.Authenticate(s.jwtMgr, s.isBlacklisted))
+	protected.GET("/users/me", s.users.Me)
+	protected.PATCH("/users/me", s.users.UpdateMe)
+}
+
+func (s *Server) isBlacklisted(c *gin.Context, tokenID string) (bool, error) {
+	return s.authSvc.IsTokenBlacklisted(c.Request.Context(), tokenID)
 }
 
 func (s *Server) healthz(c *gin.Context) {

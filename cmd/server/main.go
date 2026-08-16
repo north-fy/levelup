@@ -19,6 +19,16 @@ import (
 	"github.com/north-fy/levelup/internal/server"
 )
 
+//	@title			LevelUp Tracker API
+//	@version		1.0
+//	@description	RPG-style task tracker: quests, gold, roadmaps and stats.
+//	@host			localhost:8080
+//	@BasePath		/api/v1
+//	@securityDefinitions.apikey	BearerAuth
+//	@in							header
+//	@name						Authorization
+//	@description				Type "Bearer" followed by a space and the JWT access token.
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "server exited with error: %v\n", err)

@@ -1,6 +1,7 @@
 BINARY := bin/server
 MIGRATE_BIN := bin/migrate
 LINT_BIN := bin/golangci-lint
+SWAG_BIN := bin/swag
 GO ?= go
 export GOMODCACHE := $(CURDIR)/.gomodcache
 
@@ -22,8 +23,12 @@ $(LINT_BIN):
 	@echo "golangci-lint not found in $(LINT_BIN). Install it:" 
 	@echo "  curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b bin v2.12.2"
 
-swagger:
-	swag init -g cmd/server/main.go -o docs
+swagger: $(SWAG_BIN)
+	$(SWAG_BIN) init -g cmd/server/main.go -o docs
+
+$(SWAG_BIN):
+	@echo "swag not found in $(SWAG_BIN). Install it:"
+	@echo "  GOBIN=$$(pwd)/bin go install github.com/swaggo/swag/cmd/swag@latest"
 
 migrate-up: $(MIGRATE_BIN)
 	$(MIGRATE_BIN) -path migrations/postgres -database "$$(go run ./cmd/migrate -dsn)" up

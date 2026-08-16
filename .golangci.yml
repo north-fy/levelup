@@ -21,11 +21,16 @@ linters:
         - name: exported
           disabled: false
   exclusions:
+    generated: lax
     rules:
       - path: _test\.go
         linters:
           - gosec
           - gocyclo
+      - path: docs/
+        linters:
+          - godot
+          - goimports
 
 formatters:
   enable:
