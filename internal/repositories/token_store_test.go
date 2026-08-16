@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/north-fy/levelup/internal/config"
 	"github.com/north-fy/levelup/internal/domain"
 	"github.com/north-fy/levelup/internal/pkg/redis"
-	"github.com/north-fy/levelup/internal/config"
 )
 
 func newTestTokenStore(t *testing.T) *TokenStore {
