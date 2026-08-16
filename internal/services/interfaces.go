@@ -63,6 +63,34 @@ type PurchaseEventPublisher interface {
 	PublishPurchase(ctx context.Context, event domain.PurchaseEvent) error
 }
 
+// RoadmapStore abstracts roadmap, node and edge persistence.
+type RoadmapStore interface {
+	Create(ctx context.Context, roadmap *domain.Roadmap) error
+	GetByID(ctx context.Context, id uint) (*domain.Roadmap, error)
+	GetByIDAndUser(ctx context.Context, id, userID uint) (*domain.Roadmap, error)
+	ListByUser(ctx context.Context, userID uint) ([]domain.Roadmap, error)
+	Update(ctx context.Context, roadmap *domain.Roadmap) error
+	Delete(ctx context.Context, roadmap *domain.Roadmap) error
+	AddNode(ctx context.Context, roadmapID uint, node *domain.RoadmapNode, deps []uint) error
+	UpdateNode(ctx context.Context, node *domain.RoadmapNode) error
+	UpdateNodeDeps(ctx context.Context, roadmapID, nodeID uint, deps []uint) error
+	GetNodeByIDAndUser(ctx context.Context, nodeID, userID uint) (*domain.RoadmapNode, error)
+	ListNodesByRoadmap(ctx context.Context, roadmapID uint) ([]domain.RoadmapNode, error)
+	ListEdgesByRoadmap(ctx context.Context, roadmapID uint) ([]domain.RoadmapEdge, error)
+	MarkNodeDone(ctx context.Context, nodeID uint) error
+}
+
+// WorkshopStore abstracts published roadmap persistence.
+type WorkshopStore interface {
+	Create(ctx context.Context, workshop *domain.WorkshopRoadmap) error
+	GetByID(ctx context.Context, id uint) (*domain.WorkshopRoadmap, error)
+	GetByIDAndAuthor(ctx context.Context, id, authorID uint) (*domain.WorkshopRoadmap, error)
+	ListPublished(ctx context.Context) ([]domain.WorkshopRoadmap, error)
+	ListByAuthor(ctx context.Context, authorID uint) ([]domain.WorkshopRoadmap, error)
+	Update(ctx context.Context, workshop *domain.WorkshopRoadmap) error
+	InstallCopy(ctx context.Context, installerID uint, workshop *domain.WorkshopRoadmap) (*domain.Roadmap, error)
+}
+
 // TokenStore abstracts ephemeral auth data persistence.
 type TokenStore interface {
 	SaveRefresh(ctx context.Context, tokenID string, userID uint, ttl time.Duration) error

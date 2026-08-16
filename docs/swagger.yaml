@@ -85,6 +85,100 @@ definitions:
     x-enum-varnames:
     - QuestTypeSimple
     - QuestTypeTimed
+  domain.Roadmap:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      source_id:
+        type: integer
+      source_type:
+        $ref: '#/definitions/domain.RoadmapSourceType'
+      title:
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  domain.RoadmapDetail:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      edges:
+        items:
+          $ref: '#/definitions/domain.RoadmapEdge'
+        type: array
+      id:
+        type: integer
+      nodes:
+        items:
+          $ref: '#/definitions/domain.RoadmapNode'
+        type: array
+      source_id:
+        type: integer
+      source_type:
+        $ref: '#/definitions/domain.RoadmapSourceType'
+      title:
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  domain.RoadmapEdge:
+    properties:
+      from_node_id:
+        type: integer
+      id:
+        type: integer
+      roadmap_id:
+        type: integer
+      to_node_id:
+        type: integer
+    type: object
+  domain.RoadmapNode:
+    properties:
+      completed_at:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      duration_hours:
+        type: integer
+      id:
+        type: integer
+      position:
+        type: integer
+      reward_gold:
+        type: integer
+      reward_xp:
+        type: integer
+      roadmap_id:
+        type: integer
+      status:
+        $ref: '#/definitions/domain.QuestStatus'
+      title:
+        type: string
+      type:
+        $ref: '#/definitions/domain.QuestType'
+      updated_at:
+        type: string
+    type: object
+  domain.RoadmapSourceType:
+    enum:
+    - own
+    - workshop
+    type: string
+    x-enum-varnames:
+    - RoadmapSourceOwn
+    - RoadmapSourceWorkshop
   domain.ShopItem:
     properties:
       created_at:
@@ -127,10 +221,51 @@ definitions:
       xp:
         type: integer
     type: object
+  domain.WorkshopRoadmap:
+    properties:
+      author_id:
+        type: integer
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      is_published:
+        type: boolean
+      source_roadmap_id:
+        type: integer
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
   handlers.ErrorResponse:
     properties:
       error:
         type: string
+    type: object
+  handlers.addNodeRequest:
+    properties:
+      dependencies:
+        items:
+          type: integer
+        type: array
+      description:
+        type: string
+      duration_hours:
+        type: integer
+      reward_gold:
+        type: integer
+      reward_xp:
+        type: integer
+      title:
+        type: string
+      type:
+        $ref: '#/definitions/domain.QuestType'
+    required:
+    - title
+    - type
     type: object
   handlers.createBranchRequest:
     properties:
@@ -163,6 +298,15 @@ definitions:
     - title
     - type
     type: object
+  handlers.createRoadmapRequest:
+    properties:
+      description:
+        type: string
+      title:
+        type: string
+    required:
+    - title
+    type: object
   handlers.createShopItemRequest:
     properties:
       description:
@@ -173,6 +317,17 @@ definitions:
         type: string
     required:
     - title
+    type: object
+  handlers.createWorkshopRequest:
+    properties:
+      description:
+        type: string
+      roadmap_id:
+        type: integer
+      title:
+        type: string
+    required:
+    - roadmap_id
     type: object
   handlers.loginRequest:
     properties:
@@ -239,6 +394,23 @@ definitions:
       name:
         type: string
     type: object
+  handlers.updateNodeRequest:
+    properties:
+      dependencies:
+        items:
+          type: integer
+        type: array
+      description:
+        type: string
+      duration_hours:
+        type: integer
+      reward_gold:
+        type: integer
+      reward_xp:
+        type: integer
+      title:
+        type: string
+    type: object
   handlers.updateProfileRequest:
     properties:
       avatar_url:
@@ -261,12 +433,28 @@ definitions:
       title:
         type: string
     type: object
+  handlers.updateRoadmapRequest:
+    properties:
+      description:
+        type: string
+      title:
+        type: string
+    type: object
   handlers.updateShopItemRequest:
     properties:
       description:
         type: string
       price_gold:
         type: integer
+      title:
+        type: string
+    type: object
+  handlers.updateWorkshopRequest:
+    properties:
+      description:
+        type: string
+      is_published:
+        type: boolean
       title:
         type: string
     type: object
@@ -807,6 +995,268 @@ paths:
       summary: Stop the time tracker and complete the timed quest
       tags:
       - quests
+  /roadmaps:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.Roadmap'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List the user's roadmaps
+      tags:
+      - roadmaps
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Roadmap payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createRoadmapRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.Roadmap'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a personal roadmap
+      tags:
+      - roadmaps
+  /roadmaps/{id}:
+    delete:
+      parameters:
+      - description: Roadmap id
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a roadmap
+      tags:
+      - roadmaps
+    get:
+      parameters:
+      - description: Roadmap id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.RoadmapDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a roadmap with its graph
+      tags:
+      - roadmaps
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Roadmap id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Roadmap fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateRoadmapRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Roadmap'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a roadmap
+      tags:
+      - roadmaps
+  /roadmaps/{id}/nodes:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Roadmap id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Node payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.addNodeRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.RoadmapNode'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add a node to a roadmap
+      tags:
+      - roadmaps
+  /roadmaps/{id}/nodes/{nodeId}:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Roadmap id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Node id
+        in: path
+        name: nodeId
+        required: true
+        type: integer
+      - description: Node fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateNodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.RoadmapNode'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a roadmap node
+      tags:
+      - roadmaps
+  /roadmaps/{id}/nodes/{nodeId}/complete:
+    post:
+      parameters:
+      - description: Roadmap id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Node id
+        in: path
+        name: nodeId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.RoadmapNode'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Complete a roadmap node once its dependencies are done
+      tags:
+      - roadmaps
   /shop/items:
     get:
       parameters:
@@ -1025,6 +1475,133 @@ paths:
       summary: Update the authenticated user's profile
       tags:
       - users
+  /workshop/roadmaps:
+    get:
+      parameters:
+      - description: List only the current user's workshops
+        in: query
+        name: mine
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/domain.WorkshopRoadmap'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List published workshop roadmaps
+      tags:
+      - workshop
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workshop payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.createWorkshopRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.WorkshopRoadmap'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Publish a roadmap to the workshop
+      tags:
+      - workshop
+  /workshop/roadmaps/{id}:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workshop id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Workshop fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateWorkshopRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.WorkshopRoadmap'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update an authored workshop roadmap
+      tags:
+      - workshop
+  /workshop/roadmaps/{id}/install:
+    post:
+      parameters:
+      - description: Workshop id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.RoadmapDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Install a published workshop roadmap
+      tags:
+      - workshop
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer" followed by a space and the JWT access token.

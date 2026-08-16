@@ -495,3 +495,314 @@ func (r *recordingPurchasePublisher) count() int {
 	defer r.mu.Unlock()
 	return len(r.events)
 }
+
+// fakeRoadmapStore is an in-memory implementation of RoadmapStore for tests.
+type fakeRoadmapStore struct {
+	mu             sync.Mutex
+	nextID         uint
+	nextNodeID     uint
+	nextEdgeID     uint
+	byID           map[uint]*domain.Roadmap
+	byUserID       map[uint][]*domain.Roadmap
+	nodesByRoadmap map[uint][]*domain.RoadmapNode
+	nodesByID      map[uint]*domain.RoadmapNode
+	edgesByRoadmap map[uint][]*domain.RoadmapEdge
+}
+
+func newFakeRoadmapStore() *fakeRoadmapStore {
+	return &fakeRoadmapStore{
+		byID:           make(map[uint]*domain.Roadmap),
+		byUserID:       make(map[uint][]*domain.Roadmap),
+		nodesByRoadmap: make(map[uint][]*domain.RoadmapNode),
+		nodesByID:      make(map[uint]*domain.RoadmapNode),
+		edgesByRoadmap: make(map[uint][]*domain.RoadmapEdge),
+	}
+}
+
+func (f *fakeRoadmapStore) Create(_ context.Context, roadmap *domain.Roadmap) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	roadmap.ID = f.nextID
+	f.byID[roadmap.ID] = roadmap
+	f.byUserID[roadmap.UserID] = append(f.byUserID[roadmap.UserID], roadmap)
+	return nil
+}
+
+func (f *fakeRoadmapStore) GetByID(_ context.Context, id uint) (*domain.Roadmap, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rm, ok := f.byID[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return rm, nil
+}
+
+func (f *fakeRoadmapStore) GetByIDAndUser(_ context.Context, id, userID uint) (*domain.Roadmap, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rm, ok := f.byID[id]
+	if !ok || rm.UserID != userID {
+		return nil, domain.ErrNotFound
+	}
+	return rm, nil
+}
+
+func (f *fakeRoadmapStore) ListByUser(_ context.Context, userID uint) ([]domain.Roadmap, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []domain.Roadmap
+	for _, rm := range f.byUserID[userID] {
+		result = append(result, *rm)
+	}
+	return result, nil
+}
+
+func (f *fakeRoadmapStore) Update(_ context.Context, roadmap *domain.Roadmap) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byID[roadmap.ID] = roadmap
+	return nil
+}
+
+func (f *fakeRoadmapStore) Delete(_ context.Context, roadmap *domain.Roadmap) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.byID, roadmap.ID)
+	delete(f.nodesByRoadmap, roadmap.ID)
+	delete(f.edgesByRoadmap, roadmap.ID)
+	return nil
+}
+
+func (f *fakeRoadmapStore) AddNode(_ context.Context, roadmapID uint, node *domain.RoadmapNode, deps []uint) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.addNodeLocked(roadmapID, node, deps)
+}
+
+func (f *fakeRoadmapStore) addNodeLocked(roadmapID uint, node *domain.RoadmapNode, deps []uint) error {
+	f.nextNodeID++
+	node.ID = f.nextNodeID
+	node.RoadmapID = roadmapID
+	f.nodesByRoadmap[roadmapID] = append(f.nodesByRoadmap[roadmapID], node)
+	f.nodesByID[node.ID] = node
+	for _, dep := range deps {
+		if _, ok := f.nodesByID[dep]; !ok {
+			return domain.ErrNotFound
+		}
+		f.nextEdgeID++
+		f.edgesByRoadmap[roadmapID] = append(f.edgesByRoadmap[roadmapID], &domain.RoadmapEdge{
+			ID:         f.nextEdgeID,
+			RoadmapID:  roadmapID,
+			FromNodeID: dep,
+			ToNodeID:   node.ID,
+		})
+	}
+	return nil
+}
+
+func (f *fakeRoadmapStore) UpdateNode(_ context.Context, node *domain.RoadmapNode) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nodesByID[node.ID] = node
+	return nil
+}
+
+func (f *fakeRoadmapStore) UpdateNodeDeps(_ context.Context, roadmapID, nodeID uint, deps []uint) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	edges := f.edgesByRoadmap[roadmapID]
+	filtered := edges[:0]
+	for _, e := range edges {
+		if e.ToNodeID != nodeID {
+			filtered = append(filtered, e)
+		}
+	}
+	f.edgesByRoadmap[roadmapID] = filtered
+	for _, dep := range deps {
+		f.nextEdgeID++
+		f.edgesByRoadmap[roadmapID] = append(f.edgesByRoadmap[roadmapID], &domain.RoadmapEdge{
+			ID:         f.nextEdgeID,
+			RoadmapID:  roadmapID,
+			FromNodeID: dep,
+			ToNodeID:   nodeID,
+		})
+	}
+	return nil
+}
+
+func (f *fakeRoadmapStore) GetNodeByIDAndUser(_ context.Context, nodeID, userID uint) (*domain.RoadmapNode, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	node, ok := f.nodesByID[nodeID]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	rm, ok := f.byID[node.RoadmapID]
+	if !ok || rm.UserID != userID {
+		return nil, domain.ErrNotFound
+	}
+	return node, nil
+}
+
+func (f *fakeRoadmapStore) ListNodesByRoadmap(_ context.Context, roadmapID uint) ([]domain.RoadmapNode, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []domain.RoadmapNode
+	for _, n := range f.nodesByRoadmap[roadmapID] {
+		result = append(result, *n)
+	}
+	return result, nil
+}
+
+func (f *fakeRoadmapStore) ListEdgesByRoadmap(_ context.Context, roadmapID uint) ([]domain.RoadmapEdge, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []domain.RoadmapEdge
+	for _, e := range f.edgesByRoadmap[roadmapID] {
+		result = append(result, *e)
+	}
+	return result, nil
+}
+
+func (f *fakeRoadmapStore) MarkNodeDone(_ context.Context, nodeID uint) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	node, ok := f.nodesByID[nodeID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	node.Status = domain.QuestStatusDone
+	now := time.Now()
+	node.CompletedAt = &now
+	return nil
+}
+
+// fakeWorkshopStore is an in-memory implementation of WorkshopStore for tests.
+type fakeWorkshopStore struct {
+	mu         sync.Mutex
+	roadmaps   *fakeRoadmapStore
+	nextID     uint
+	byID       map[uint]*domain.WorkshopRoadmap
+	byAuthorID map[uint][]*domain.WorkshopRoadmap
+}
+
+func newFakeWorkshopStore(roadmaps *fakeRoadmapStore) *fakeWorkshopStore {
+	return &fakeWorkshopStore{
+		roadmaps:   roadmaps,
+		byID:       make(map[uint]*domain.WorkshopRoadmap),
+		byAuthorID: make(map[uint][]*domain.WorkshopRoadmap),
+	}
+}
+
+func (f *fakeWorkshopStore) Create(_ context.Context, workshop *domain.WorkshopRoadmap) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	workshop.ID = f.nextID
+	f.byID[workshop.ID] = workshop
+	f.byAuthorID[workshop.AuthorID] = append(f.byAuthorID[workshop.AuthorID], workshop)
+	return nil
+}
+
+func (f *fakeWorkshopStore) GetByID(_ context.Context, id uint) (*domain.WorkshopRoadmap, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	w, ok := f.byID[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return w, nil
+}
+
+func (f *fakeWorkshopStore) GetByIDAndAuthor(_ context.Context, id, authorID uint) (*domain.WorkshopRoadmap, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	w, ok := f.byID[id]
+	if !ok || w.AuthorID != authorID {
+		return nil, domain.ErrNotFound
+	}
+	return w, nil
+}
+
+func (f *fakeWorkshopStore) ListPublished(_ context.Context) ([]domain.WorkshopRoadmap, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []domain.WorkshopRoadmap
+	for _, w := range f.byID {
+		if w.IsPublished {
+			result = append(result, *w)
+		}
+	}
+	return result, nil
+}
+
+func (f *fakeWorkshopStore) ListByAuthor(_ context.Context, authorID uint) ([]domain.WorkshopRoadmap, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []domain.WorkshopRoadmap
+	for _, w := range f.byAuthorID[authorID] {
+		result = append(result, *w)
+	}
+	return result, nil
+}
+
+func (f *fakeWorkshopStore) Update(_ context.Context, workshop *domain.WorkshopRoadmap) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byID[workshop.ID] = workshop
+	return nil
+}
+
+func (f *fakeWorkshopStore) InstallCopy(ctx context.Context, installerID uint, workshop *domain.WorkshopRoadmap) (*domain.Roadmap, error) {
+	src, err := f.roadmaps.GetByID(ctx, workshop.SourceRoadmapID)
+	if err != nil {
+		return nil, err
+	}
+
+	installed := &domain.Roadmap{
+		UserID:      installerID,
+		Title:       workshop.Title,
+		Description: workshop.Description,
+		SourceType:  domain.RoadmapSourceWorkshop,
+		SourceID:    workshop.ID,
+	}
+	if err := f.roadmaps.Create(ctx, installed); err != nil {
+		return nil, err
+	}
+
+	nodes, err := f.roadmaps.ListNodesByRoadmap(ctx, src.ID)
+	if err != nil {
+		return nil, err
+	}
+	edges, err := f.roadmaps.ListEdgesByRoadmap(ctx, src.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	idMap := make(map[uint]uint, len(nodes))
+	for _, n := range nodes {
+		copyNode := n
+		copyNode.ID = 0
+		copyNode.RoadmapID = installed.ID
+		copyNode.Status = domain.QuestStatusTodo
+		copyNode.CompletedAt = nil
+		if err := f.roadmaps.AddNode(ctx, installed.ID, &copyNode, nil); err != nil {
+			return nil, err
+		}
+		idMap[n.ID] = copyNode.ID
+	}
+	for _, e := range edges {
+		f.roadmaps.mu.Lock()
+		f.roadmaps.nextEdgeID++
+		f.roadmaps.edgesByRoadmap[installed.ID] = append(f.roadmaps.edgesByRoadmap[installed.ID], &domain.RoadmapEdge{
+			ID:         f.roadmaps.nextEdgeID,
+			RoadmapID:  installed.ID,
+			FromNodeID: idMap[e.FromNodeID],
+			ToNodeID:   idMap[e.ToNodeID],
+		})
+		f.roadmaps.mu.Unlock()
+	}
+	return installed, nil
+}

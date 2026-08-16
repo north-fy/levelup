@@ -39,6 +39,8 @@ type Server struct {
 	branches *handlers.BranchHandler
 	quests   *handlers.QuestHandler
 	shop     *handlers.ShopHandler
+	roadmaps *handlers.RoadmapHandler
+	workshop *handlers.WorkshopHandler
 	authSvc  *services.AuthService
 	jwtMgr   *jwt.Manager
 }
@@ -61,6 +63,8 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 	questRepo := repositories.NewQuestRepository(pg)
 	shopItemRepo := repositories.NewShopItemRepository(pg)
 	purchaseRepo := repositories.NewPurchaseRepository(pg)
+	roadmapRepo := repositories.NewRoadmapRepository(pg)
+	workshopRepo := repositories.NewWorkshopRepository(pg)
 	jwtMgr := jwt.New(cfg.JWT)
 
 	authService := services.NewAuthService(userRepo, tokenStore, jwtMgr, cfg.GitHub)
@@ -68,6 +72,8 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 	branchService := services.NewBranchService(branchRepo)
 	questService := services.NewQuestService(questRepo, branchRepo, userRepo, services.NoopQuestEventPublisher{})
 	shopService := services.NewShopService(shopItemRepo, purchaseRepo, userRepo, services.NoopPurchaseEventPublisher{})
+	roadmapService := services.NewRoadmapService(roadmapRepo, userRepo, services.NoopQuestEventPublisher{})
+	workshopService := services.NewWorkshopService(workshopRepo, roadmapRepo)
 
 	s := &Server{
 		engine:   engine,
@@ -80,6 +86,8 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 		branches: handlers.NewBranchHandler(branchService),
 		quests:   handlers.NewQuestHandler(questService),
 		shop:     handlers.NewShopHandler(shopService),
+		roadmaps: handlers.NewRoadmapHandler(roadmapService),
+		workshop: handlers.NewWorkshopHandler(workshopService),
 		authSvc:  authService,
 		jwtMgr:   jwtMgr,
 	}
@@ -139,6 +147,20 @@ func (s *Server) routes() {
 	protected.DELETE("/shop/items/:id", s.shop.Delete)
 	protected.POST("/shop/items/:id/buy", s.shop.Buy)
 	protected.GET("/shop/purchases", s.shop.Purchases)
+
+	protected.POST("/roadmaps", s.roadmaps.Create)
+	protected.GET("/roadmaps", s.roadmaps.List)
+	protected.GET("/roadmaps/:id", s.roadmaps.Get)
+	protected.PATCH("/roadmaps/:id", s.roadmaps.Update)
+	protected.DELETE("/roadmaps/:id", s.roadmaps.Delete)
+	protected.POST("/roadmaps/:id/nodes", s.roadmaps.AddNode)
+	protected.PATCH("/roadmaps/:id/nodes/:nodeId", s.roadmaps.UpdateNode)
+	protected.POST("/roadmaps/:id/nodes/:nodeId/complete", s.roadmaps.CompleteNode)
+
+	protected.POST("/workshop/roadmaps", s.workshop.Create)
+	protected.GET("/workshop/roadmaps", s.workshop.List)
+	protected.PATCH("/workshop/roadmaps/:id", s.workshop.Update)
+	protected.POST("/workshop/roadmaps/:id/install", s.workshop.Install)
 }
 
 func (s *Server) isBlacklisted(c *gin.Context, tokenID string) (bool, error) {

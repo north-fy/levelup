@@ -21,6 +21,10 @@ var (
 	ErrCannotBuyOwnItem     = errors.New("cannot buy your own item")
 	ErrItemNotActive        = errors.New("item is not active")
 	ErrNotEnoughGold        = errors.New("not enough gold")
+	ErrGraphCycle           = errors.New("cycle detected in dependencies")
+	ErrPrerequisitesNotMet  = errors.New("not all dependencies completed")
+	ErrWorkshopNotPublished = errors.New("roadmap is not published")
+	ErrAlreadyPublished     = errors.New("roadmap already published")
 )
 
 // ValidationError indicates invalid client input.
