@@ -26,6 +26,17 @@ go.work.sum
 
 # env file
 .env
+.env.local
+
+# binaries
+/bin/
+/dist/
+
+# local tools
+.migrate/
+
+# project-local go module cache (isolates from corrupt global cache)
+.gomodcache/
 PLAN.md
 
 # Editor/IDE
