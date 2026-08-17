@@ -8,6 +8,13 @@
 //
 //	go test -tags e2e ./e2e/ -v -count=1
 //
+// Load benchmarks (throughput, latency percentiles, max RPS) run against the
+// same stack:
+//
+//	go test -tags e2e ./e2e/ -run '^$' -bench . -benchmem -count=1
+//
+// The .env template disables rate limiting so benchmarks measure the true
+// ceiling; with the default limits enabled the observed RPS would be capped.
 // The test requires Docker and builds the app image on first run. The stack is
 // brought up once for the whole suite and torn down afterwards.
 package e2e
@@ -23,6 +30,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -66,8 +75,10 @@ JWT_REFRESH_TTL=720h
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 GITHUB_REDIRECT_URL=
-RATE_LIMIT_GLOBAL=2000
-RATE_LIMIT_PER_USER=120
+# Rate limits are disabled (0) so the e2e load benchmarks can measure the raw
+# ceiling of the stack. Functional tests do not assert rate limiting.
+RATE_LIMIT_GLOBAL=0
+RATE_LIMIT_PER_USER=0
 RATE_LIMIT_WINDOW=1m
 `)
 
@@ -235,22 +246,28 @@ type apiClient struct {
 }
 
 func newClient() *apiClient {
-	return &apiClient{base: baseURL, hc: &http.Client{Timeout: 20 * time.Second}}
+	return &apiClient{base: baseURL, hc: &http.Client{
+		Timeout: 20 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        256,
+			MaxIdleConnsPerHost: 128,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}}
 }
 
-func (c *apiClient) do(t *testing.T, method, path, token string, body any) (int, []byte) {
-	t.Helper()
+func (c *apiClient) doRaw(method, path, token string, body any) (int, []byte, error) {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			t.Fatalf("marshal body: %v", err)
+			return 0, nil, fmt.Errorf("marshal body: %w", err)
 		}
 		rd = bytes.NewReader(b)
 	}
 	req, err := http.NewRequest(method, c.base+path, rd)
 	if err != nil {
-		t.Fatalf("new request: %v", err)
+		return 0, nil, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -260,14 +277,23 @@ func (c *apiClient) do(t *testing.T, method, path, token string, body any) (int,
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		t.Fatalf("%s %s: %v", method, path, err)
+		return 0, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("read body: %v", err)
+		return 0, nil, err
 	}
-	return resp.StatusCode, data
+	return resp.StatusCode, data, nil
+}
+
+func (c *apiClient) do(t *testing.T, method, path, token string, body any) (int, []byte) {
+	t.Helper()
+	status, data, err := c.doRaw(method, path, token, body)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	return status, data
 }
 
 func asMap(t *testing.T, data []byte) map[string]any {
@@ -319,16 +345,30 @@ type user struct {
 
 func registerUser(t *testing.T, c *apiClient, prefix string) user {
 	t.Helper()
+	u, err := registerUserRaw(c, prefix)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	return u
+}
+
+func registerUserRaw(c *apiClient, prefix string) (user, error) {
 	email := fmt.Sprintf("%s-%d@e2e.dev", prefix, time.Now().UnixNano())
-	status, body := c.do(t, http.MethodPost, "/auth/register", "", map[string]any{
+	status, body, err := c.doRaw(http.MethodPost, "/auth/register", "", map[string]any{
 		"email":    email,
 		"password": "password123",
 		"nickname": prefix,
 	})
-	if status != http.StatusCreated {
-		t.Fatalf("register: status %d body %s", status, body)
+	if err != nil {
+		return user{}, fmt.Errorf("register: %w", err)
 	}
-	m := asMap(t, body)
+	if status != http.StatusCreated {
+		return user{}, fmt.Errorf("register: status %d body %s", status, body)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return user{}, fmt.Errorf("register decode: %w", err)
+	}
 	u := user{
 		token:   str(m, "access_token"),
 		refresh: str(m, "refresh_token"),
@@ -336,13 +376,13 @@ func registerUser(t *testing.T, c *apiClient, prefix string) user {
 	}
 	um, ok := m["user"].(map[string]any)
 	if !ok {
-		t.Fatalf("register: no user object: %s", body)
+		return user{}, fmt.Errorf("register: no user object: %s", body)
 	}
 	u.id = int(num(um, "id"))
 	if u.token == "" || u.id == 0 {
-		t.Fatalf("register: missing token/user: %s", body)
+		return user{}, fmt.Errorf("register: missing token/user: %s", body)
 	}
-	return u
+	return u, nil
 }
 
 func requireStatus(t *testing.T, got, want int, body []byte, what string) {
@@ -608,4 +648,312 @@ func TestE2EStats(t *testing.T) {
 
 	status, body = c.do(t, http.MethodGet, "/stats/roadmaps", u.token, nil)
 	requireStatus(t, status, http.StatusOK, body, "stats roadmaps")
+}
+
+// --- Load helpers -----------------------------------------------------------
+
+type loadResult struct {
+	rps      float64
+	p50      float64
+	p95      float64
+	p99      float64
+	errorPct float64
+}
+
+func (r loadResult) report(b *testing.B) {
+	b.ReportMetric(r.rps, "req/s")
+	b.ReportMetric(r.p50, "p50_s")
+	b.ReportMetric(r.p95, "p95_s")
+	b.ReportMetric(r.p99, "p99_s")
+	b.ReportMetric(r.errorPct, "error_pct")
+}
+
+type workFunc func() (time.Duration, error)
+
+// makeWorkFunc builds the per-worker workload (e.g. pinning each worker to its
+// own token to spread requests across users).
+type makeWorkFunc func(w int) workFunc
+
+func runLoad(b *testing.B, concurrency int, makeWork makeWorkFunc) {
+	lat, errs, elapsed := driveLoad(concurrency, b.N, makeWork)
+	summarize(lat, errs, elapsed).report(b)
+}
+
+func runFixed(concurrency, n int, makeWork makeWorkFunc) loadResult {
+	lat, errs, elapsed := driveLoad(concurrency, n, makeWork)
+	return summarize(lat, errs, elapsed)
+}
+
+func driveLoad(concurrency, n int, makeWork makeWorkFunc) ([][]float64, []int, time.Duration) {
+	lat := make([][]float64, concurrency)
+	errs := make([]int, concurrency)
+	jobs := make(chan struct{})
+	var wg sync.WaitGroup
+	start := time.Now()
+	for w := 0; w < concurrency; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			work := makeWork(w)
+			perWorker := lat[w]
+			for range jobs {
+				d, err := work()
+				if err != nil {
+					errs[w]++
+				}
+				perWorker = append(perWorker, d.Seconds())
+			}
+			lat[w] = perWorker
+		}(w)
+	}
+	for i := 0; i < n; i++ {
+		jobs <- struct{}{}
+	}
+	close(jobs)
+	wg.Wait()
+	return lat, errs, time.Since(start)
+}
+
+func summarize(lat [][]float64, errs []int, elapsed time.Duration) loadResult {
+	var all []float64
+	total, e := 0, 0
+	for w := range lat {
+		all = append(all, lat[w]...)
+		total += len(lat[w])
+		e += errs[w]
+	}
+	sort.Float64s(all)
+	res := loadResult{}
+	if elapsed > 0 && total > 0 {
+		res.rps = float64(total) / elapsed.Seconds()
+		res.errorPct = float64(e) / float64(total) * 100
+	}
+	res.p50 = pct(all, 0.50)
+	res.p95 = pct(all, 0.95)
+	res.p99 = pct(all, 0.99)
+	return res
+}
+
+func pct(sorted []float64, p float64) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	i := int(p * float64(len(sorted)))
+	if i >= len(sorted) {
+		i = len(sorted) - 1
+	}
+	return sorted[i]
+}
+
+// --- Benchmarks -------------------------------------------------------------
+//
+// Benchmarks run against the live compose stack (see package doc for the exact
+// command). With the default e2e .env the rate limiters are disabled (limit 0),
+// so the numbers reflect the raw ceiling of the stack; with limits enabled the
+// per-user limiter would cap throughput.
+
+var (
+	benchOnce      sync.Once
+	benchSetupErr  error
+	benchReadUsers []user
+	benchQuestAccs []*questAccount
+	benchLoginUser user
+)
+
+type questAccount struct {
+	u        user
+	branchID int
+}
+
+// benchSetup registers the user pool used by the benchmarks: 24 readers for the
+// read workloads, 8 users each with a branch for the quest workload, and one
+// login account.
+func benchSetup() {
+	benchOnce.Do(func() {
+		c := newClient()
+		for i := 0; i < 24; i++ {
+			u, err := registerUserRaw(c, "bench-read")
+			if err != nil {
+				benchSetupErr = err
+				return
+			}
+			benchReadUsers = append(benchReadUsers, u)
+		}
+		for i := 0; i < 8; i++ {
+			u, err := registerUserRaw(c, "bench-write")
+			if err != nil {
+				benchSetupErr = err
+				return
+			}
+			status, body, err := c.doRaw(http.MethodPost, "/branches", u.token, map[string]any{"name": "Load"})
+			if err != nil {
+				benchSetupErr = fmt.Errorf("create bench branch: %w", err)
+				return
+			}
+			if status != http.StatusCreated {
+				benchSetupErr = fmt.Errorf("create bench branch: status %d body %s", status, body)
+				return
+			}
+			var m map[string]any
+			if err := json.Unmarshal(body, &m); err != nil {
+				benchSetupErr = fmt.Errorf("decode bench branch: %w", err)
+				return
+			}
+			benchQuestAccs = append(benchQuestAccs, &questAccount{u: u, branchID: int(num(m, "id"))})
+		}
+		u, err := registerUserRaw(c, "bench-login")
+		if err != nil {
+			benchSetupErr = err
+			return
+		}
+		benchLoginUser = u
+	})
+}
+
+// readWork benchmarks GET /users/me (cache read after the first request).
+func readWork(c *apiClient, u *user) workFunc {
+	return func() (time.Duration, error) {
+		start := time.Now()
+		status, _, err := c.doRaw(http.MethodGet, "/users/me", u.token, nil)
+		if err != nil {
+			return time.Since(start), err
+		}
+		if status != http.StatusOK {
+			return time.Since(start), fmt.Errorf("GET /users/me: status %d", status)
+		}
+		return time.Since(start), nil
+	}
+}
+
+// BenchmarkReads measures read throughput (auth + profile from cache).
+func BenchmarkReads(b *testing.B) {
+	benchSetup()
+	if benchSetupErr != nil {
+		b.Fatal(benchSetupErr)
+	}
+	c := newClient()
+	runLoad(b, 32, func(w int) workFunc {
+		return readWork(c, &benchReadUsers[w%len(benchReadUsers)])
+	})
+}
+
+// BenchmarkQuestComplete measures the write path: create + complete a quest.
+func BenchmarkQuestComplete(b *testing.B) {
+	benchSetup()
+	if benchSetupErr != nil {
+		b.Fatal(benchSetupErr)
+	}
+	c := newClient()
+	runLoad(b, 8, func(w int) workFunc {
+		acc := benchQuestAccs[w%len(benchQuestAccs)]
+		return func() (time.Duration, error) {
+			start := time.Now()
+			status, body, err := c.doRaw(http.MethodPost, fmt.Sprintf("/branches/%d/quests", acc.branchID), acc.u.token, map[string]any{
+				"title": "Load quest", "type": "simple", "reward_xp": 10,
+			})
+			if err != nil {
+				return time.Since(start), err
+			}
+			if status != http.StatusCreated {
+				return time.Since(start), fmt.Errorf("create quest: status %d body %s", status, body)
+			}
+			var m map[string]any
+			if err := json.Unmarshal(body, &m); err != nil {
+				return time.Since(start), fmt.Errorf("decode quest: %w", err)
+			}
+			questID := int(num(m, "id"))
+			status, body, err = c.doRaw(http.MethodPost, fmt.Sprintf("/quests/%d/complete", questID), acc.u.token, nil)
+			if err != nil {
+				return time.Since(start), err
+			}
+			if status != http.StatusOK {
+				return time.Since(start), fmt.Errorf("complete quest: status %d body %s", status, body)
+			}
+			return time.Since(start), nil
+		}
+	})
+}
+
+// BenchmarkLogin measures the login path (bcrypt-bound).
+func BenchmarkLogin(b *testing.B) {
+	benchSetup()
+	if benchSetupErr != nil {
+		b.Fatal(benchSetupErr)
+	}
+	c := newClient()
+	runLoad(b, 8, func(w int) workFunc {
+		return func() (time.Duration, error) {
+			start := time.Now()
+			status, body, err := c.doRaw(http.MethodPost, "/auth/login", "", map[string]any{
+				"email": benchLoginUser.email, "password": "password123",
+			})
+			if err != nil {
+				return time.Since(start), err
+			}
+			if status != http.StatusOK {
+				return time.Since(start), fmt.Errorf("login: status %d body %s", status, body)
+			}
+			return time.Since(start), nil
+		}
+	})
+}
+
+// BenchmarkRegister measures the registration path (bcrypt + DB insert).
+func BenchmarkRegister(b *testing.B) {
+	benchSetup()
+	if benchSetupErr != nil {
+		b.Fatal(benchSetupErr)
+	}
+	c := newClient()
+	var mu sync.Mutex
+	n := 0
+	runLoad(b, 8, func(w int) workFunc {
+		return func() (time.Duration, error) {
+			mu.Lock()
+			n++
+			i := n
+			mu.Unlock()
+			email := fmt.Sprintf("bench-reg-%d-%d@e2e.dev", time.Now().UnixNano(), i)
+			start := time.Now()
+			status, body, err := c.doRaw(http.MethodPost, "/auth/register", "", map[string]any{
+				"email": email, "password": "password123", "nickname": "bench-reg",
+			})
+			if err != nil {
+				return time.Since(start), err
+			}
+			if status != http.StatusCreated {
+				return time.Since(start), fmt.Errorf("register: status %d body %s", status, body)
+			}
+			return time.Since(start), nil
+		}
+	})
+}
+
+// BenchmarkMaxRPS sweeps concurrency levels on the read path and reports the
+// best throughput reached and the concurrency level where it was found.
+func BenchmarkMaxRPS(b *testing.B) {
+	benchSetup()
+	if benchSetupErr != nil {
+		b.Fatal(benchSetupErr)
+	}
+	c := newClient()
+	makeWork := func(w int) workFunc {
+		return readWork(c, &benchReadUsers[w%len(benchReadUsers)])
+	}
+	levels := []int{1, 2, 4, 8, 16, 32, 64, 128}
+	perLevel := b.N / len(levels)
+	if perLevel < 50 {
+		perLevel = 50
+	}
+	bestRPS := 0.0
+	bestConc := 0
+	for _, conc := range levels {
+		res := runFixed(conc, perLevel, makeWork)
+		if res.rps > bestRPS {
+			bestRPS = res.rps
+			bestConc = conc
+		}
+	}
+	b.ReportMetric(bestRPS, "max_rps")
+	b.ReportMetric(float64(bestConc), "opt_concurrency")
 }

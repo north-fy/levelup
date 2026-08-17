@@ -13,9 +13,14 @@ import (
 )
 
 // RateLimitGlobal limits the overall number of requests from an IP within a
-// window. It is meant to run on the engine before authentication.
+// window. It is meant to run on the engine before authentication. A limit <= 0
+// disables the limiter (useful for load testing the raw throughput).
 func RateLimitGlobal(limiter ratelimit.Limiter, limit int, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if limit <= 0 {
+			c.Next()
+			return
+		}
 		bucket := time.Now().Unix() / int64(window/time.Second)
 		key := "rl:ip:" + hashScope(c.ClientIP()) + ":" + strconv.FormatInt(bucket, 10)
 		allow(c, limiter, key, limit, window)
@@ -23,9 +28,14 @@ func RateLimitGlobal(limiter ratelimit.Limiter, limit int, window time.Duration)
 }
 
 // RateLimitUser limits per-user requests within a window. It must run after
-// authentication so that the user id is present in the context.
+// authentication so that the user id is present in the context. A limit <= 0
+// disables the limiter.
 func RateLimitUser(limiter ratelimit.Limiter, limit int, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if limit <= 0 {
+			c.Next()
+			return
+		}
 		bucket := time.Now().Unix() / int64(window/time.Second)
 		var key string
 		if id := UserID(c); id != 0 {
