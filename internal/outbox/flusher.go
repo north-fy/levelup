@@ -18,17 +18,22 @@ type EventStore interface {
 	MarkProcessed(ctx context.Context, id uint) error
 }
 
+// CHExecer abstracts ClickHouse writes for the flusher.
+type CHExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 // Flusher drains outbox events into ClickHouse on a schedule.
 type Flusher struct {
 	store     EventStore
-	ch        *sql.DB
+	ch        CHExecer
 	log       *zap.Logger
 	interval  time.Duration
 	batchSize int
 }
 
 // NewFlusher creates the outbox flusher.
-func NewFlusher(store EventStore, ch *sql.DB, log *zap.Logger) *Flusher {
+func NewFlusher(store EventStore, ch CHExecer, log *zap.Logger) *Flusher {
 	return &Flusher{
 		store:     store,
 		ch:        ch,

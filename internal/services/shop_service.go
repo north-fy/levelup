@@ -7,6 +7,7 @@ import (
 
 	"github.com/north-fy/levelup/internal/domain"
 	"github.com/north-fy/levelup/internal/pkg/cache"
+	"github.com/north-fy/levelup/internal/pkg/metrics"
 )
 
 const (
@@ -173,6 +174,8 @@ func (s *ShopService) Buy(ctx context.Context, buyerID, itemID uint) (*domain.Pu
 	}); err != nil {
 		return nil, err
 	}
+	metrics.Purchases.Inc()
+	metrics.GoldSpent.Add(float64(item.PriceGold))
 	invalidateUser(ctx, s.cache, buyerID)
 	invalidateUser(ctx, s.cache, item.SellerID)
 	return purchase, nil

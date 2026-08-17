@@ -8,6 +8,7 @@ import (
 
 	"github.com/north-fy/levelup/internal/domain"
 	"github.com/north-fy/levelup/internal/pkg/cache"
+	"github.com/north-fy/levelup/internal/pkg/metrics"
 )
 
 const (
@@ -278,6 +279,7 @@ func (s *QuestService) awardRewards(ctx context.Context, userID uint, xp, gold i
 		return err
 	}
 	invalidateUser(ctx, s.cache, userID)
+	metrics.QuestsCompleted.Inc()
 	return nil
 }
 

@@ -18,6 +18,9 @@ func Metrics() gin.HandlerFunc {
 			path = "unmatched"
 		}
 
+		metrics.HTTPInFlight.Inc()
+		defer metrics.HTTPInFlight.Dec()
+
 		c.Next()
 
 		metrics.HTTPRequests.WithLabelValues(
