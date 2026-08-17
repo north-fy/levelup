@@ -44,15 +44,21 @@ type QuestStat struct {
 	Hours     int       `json:"hours"`
 }
 
+// CHQueryer abstracts ClickHouse reads for the stats service.
+type CHQueryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 // StatsService reads statistics from ClickHouse.
 type StatsService struct {
-	db    *sql.DB
+	db    CHQueryer
 	users UserStore
 	cache cache.Cache
 }
 
 // NewStatsService creates the statistics service.
-func NewStatsService(db *sql.DB, users UserStore, c cache.Cache) *StatsService {
+func NewStatsService(db CHQueryer, users UserStore, c cache.Cache) *StatsService {
 	return &StatsService{db: db, users: users, cache: c}
 }
 

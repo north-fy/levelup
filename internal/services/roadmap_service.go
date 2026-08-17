@@ -7,6 +7,7 @@ import (
 
 	"github.com/north-fy/levelup/internal/domain"
 	"github.com/north-fy/levelup/internal/pkg/cache"
+	"github.com/north-fy/levelup/internal/pkg/metrics"
 )
 
 // CreateRoadmapInput holds the fields for creating a roadmap.
@@ -333,6 +334,7 @@ func (s *RoadmapService) awardRewards(ctx context.Context, userID uint, xp, gold
 		return err
 	}
 	invalidateUser(ctx, s.cache, userID)
+	metrics.NodesCompleted.Inc()
 	return nil
 }
 

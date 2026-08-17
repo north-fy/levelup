@@ -24,6 +24,7 @@ import (
 	"github.com/north-fy/levelup/internal/pkg/cache"
 	"github.com/north-fy/levelup/internal/pkg/database"
 	"github.com/north-fy/levelup/internal/pkg/jwt"
+	"github.com/north-fy/levelup/internal/pkg/metrics"
 	"github.com/north-fy/levelup/internal/pkg/ratelimit"
 	"github.com/north-fy/levelup/internal/repositories"
 	"github.com/north-fy/levelup/internal/services"
@@ -80,6 +81,7 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 	jwtMgr := jwt.New(cfg.JWT)
 
 	cacheStore := cache.NewRedisCache(rdb)
+	chTimed := metrics.NewDB(ch)
 
 	authService := services.NewAuthService(userRepo, tokenStore, jwtMgr, cfg.GitHub)
 	userService := services.NewUserService(userRepo, cacheStore)
@@ -88,7 +90,7 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 	shopService := services.NewShopService(shopItemRepo, purchaseRepo, userRepo, services.NewOutboxPurchasePublisher(outboxRepo), cacheStore)
 	roadmapService := services.NewRoadmapService(roadmapRepo, userRepo, services.NewOutboxQuestPublisher(outboxRepo), cacheStore)
 	workshopService := services.NewWorkshopService(workshopRepo, roadmapRepo, cacheStore)
-	statsService := services.NewStatsService(ch, userRepo, cacheStore)
+	statsService := services.NewStatsService(chTimed, userRepo, cacheStore)
 
 	s := &Server{
 		engine:           engine,
@@ -106,7 +108,7 @@ func New(cfg *config.Config, log *zap.Logger, pg *gorm.DB, ch *sql.DB, rdb *redi
 		stats:            handlers.NewStatsHandler(statsService),
 		authSvc:          authService,
 		jwtMgr:           jwtMgr,
-		flusher:          outbox.NewFlusher(outboxRepo, ch, log),
+		flusher:          outbox.NewFlusher(outboxRepo, chTimed, log),
 		limiter:          limiter,
 		rateLimitPerUser: cfg.RateLimit.PerUser,
 		rateLimitWindow:  cfg.RateLimit.Window,

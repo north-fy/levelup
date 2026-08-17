@@ -12,6 +12,7 @@ import (
 	"github.com/north-fy/levelup/internal/config"
 	"github.com/north-fy/levelup/internal/domain"
 	"github.com/north-fy/levelup/internal/pkg/jwt"
+	"github.com/north-fy/levelup/internal/pkg/metrics"
 )
 
 const oauthStateTTL = 10 * time.Minute
@@ -69,6 +70,7 @@ func (s *AuthService) Register(ctx context.Context, email, password, nickname st
 	if err := s.users.Create(ctx, user); err != nil {
 		return nil, TokenPair{}, err
 	}
+	metrics.UsersRegistered.Inc()
 
 	pair, err := s.issueTokens(ctx, user.ID)
 	if err != nil {

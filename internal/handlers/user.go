@@ -30,6 +30,7 @@ func NewUserHandler(users *services.UserService) *UserHandler {
 //	@Summary	Get the authenticated user's profile
 //	@Tags		users
 //	@Produce	json
+//	@Security	BearerAuth
 //	@Success	200	{object}	domain.User
 //	@Failure	401	{object}	ErrorResponse
 //	@Router		/users/me [get]
@@ -48,6 +49,7 @@ func (h *UserHandler) Me(c *gin.Context) {
 //	@Tags		users
 //	@Accept		json
 //	@Produce	json
+//	@Security	BearerAuth
 //	@Param		body	body	updateProfileRequest	true	"Profile fields"
 //	@Success	200	{object}	domain.User
 //	@Failure	400	{object}	ErrorResponse

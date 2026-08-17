@@ -6,6 +6,7 @@ import (
 
 	"github.com/north-fy/levelup/internal/domain"
 	"github.com/north-fy/levelup/internal/pkg/cache"
+	"github.com/north-fy/levelup/internal/pkg/metrics"
 )
 
 // CreateWorkshopInput holds the fields for publishing a roadmap.
@@ -124,6 +125,7 @@ func (s *WorkshopService) Install(ctx context.Context, userID, workshopID uint) 
 	if err != nil {
 		return nil, err
 	}
+	metrics.RoadmapsInstalled.Inc()
 
 	nodes, err := s.roadmaps.ListNodesByRoadmap(ctx, installed.ID)
 	if err != nil {
