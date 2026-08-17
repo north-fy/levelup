@@ -5,7 +5,7 @@ SWAG_BIN := bin/swag
 GO ?= go
 export GOMODCACHE := $(CURDIR)/.gomodcache
 
-.PHONY: run build test lint swagger migrate-up migrate-down migrate-up-clickhouse compose-up compose-down
+.PHONY: run build test lint swagger e2e migrate-up migrate-down migrate-up-clickhouse compose-up compose-down
 
 run:
 	$(GO) run ./cmd/server
@@ -25,6 +25,9 @@ $(LINT_BIN):
 
 swagger: $(SWAG_BIN)
 	$(SWAG_BIN) init -g cmd/server/main.go -o docs
+
+e2e:
+	$(GO) test -tags e2e ./e2e/ -v -count=1
 
 $(SWAG_BIN):
 	@echo "swag not found in $(SWAG_BIN). Install it:"
