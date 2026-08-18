@@ -80,6 +80,10 @@ services:
     container_name: levelup-app
     env_file:
       - ${LEVELUP_ENV_FILE:-../.env}
+    environment:
+      POSTGRES_HOST: postgres
+      CLICKHOUSE_HOST: clickhouse
+      REDIS_HOST: redis
     ports:
       - "8080:8080"
     depends_on:
@@ -89,6 +93,16 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    container_name: levelup-web
+    ports:
+      - "80:80"
+    depends_on:
+      - app
 
 volumes:
   pgdata:
