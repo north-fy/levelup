@@ -90,13 +90,13 @@ func (h *BranchHandler) List(c *gin.Context) {
 //	@Tags		branches
 //	@Security	BearerAuth
 //	@Produce	json
-//	@Param		id	path	uint	true	"Branch id"
-//	@Success	200	{object}	domain.Branch
-//	@Failure	401	{object}	ErrorResponse
-//	@Failure	404	{object}	ErrorResponse
-//	@Router		/branches/{id} [get]
+//	@Param		branch_id	path	uint	true	"Branch id"
+//	@Success	200			{object}	domain.Branch
+//	@Failure	401			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Router		/branches/{branch_id} [get]
 func (h *BranchHandler) Get(c *gin.Context) {
-	id, ok := parseID(c)
+	id, ok := parseIDParam(c, "branch_id")
 	if !ok {
 		return
 	}
@@ -115,15 +115,15 @@ func (h *BranchHandler) Get(c *gin.Context) {
 //	@Security	BearerAuth
 //	@Accept		json
 //	@Produce	json
-//	@Param		id		path	uint					true	"Branch id"
-//	@Param		body	body	updateBranchRequest	true	"Branch fields"
-//	@Success	200	{object}	domain.Branch
-//	@Failure	400	{object}	ErrorResponse
-//	@Failure	401	{object}	ErrorResponse
-//	@Failure	404	{object}	ErrorResponse
-//	@Router		/branches/{id} [patch]
+//	@Param		branch_id	path	uint					true	"Branch id"
+//	@Param		body		body	updateBranchRequest	true	"Branch fields"
+//	@Success	200			{object}	domain.Branch
+//	@Failure	400			{object}	ErrorResponse
+//	@Failure	401			{object}	ErrorResponse
+//	@Failure	404			{object}	ErrorResponse
+//	@Router		/branches/{branch_id} [patch]
 func (h *BranchHandler) Update(c *gin.Context) {
-	id, ok := parseID(c)
+	id, ok := parseIDParam(c, "branch_id")
 	if !ok {
 		return
 	}
@@ -152,13 +152,13 @@ func (h *BranchHandler) Update(c *gin.Context) {
 //	@Summary	Delete a branch
 //	@Tags		branches
 //	@Security	BearerAuth
-//	@Param		id	path	uint	true	"Branch id"
+//	@Param		branch_id	path	uint	true	"Branch id"
 //	@Success	204
 //	@Failure	401	{object}	ErrorResponse
 //	@Failure	404	{object}	ErrorResponse
-//	@Router		/branches/{id} [delete]
+//	@Router		/branches/{branch_id} [delete]
 func (h *BranchHandler) Delete(c *gin.Context) {
-	id, ok := parseID(c)
+	id, ok := parseIDParam(c, "branch_id")
 	if !ok {
 		return
 	}

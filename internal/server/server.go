@@ -151,9 +151,9 @@ func (s *Server) routes() {
 
 	protected.POST("/branches", s.branches.Create)
 	protected.GET("/branches", s.branches.List)
-	protected.GET("/branches/:id", s.branches.Get)
-	protected.PATCH("/branches/:id", s.branches.Update)
-	protected.DELETE("/branches/:id", s.branches.Delete)
+	protected.GET("/branches/:branch_id", s.branches.Get)
+	protected.PATCH("/branches/:branch_id", s.branches.Update)
+	protected.DELETE("/branches/:branch_id", s.branches.Delete)
 
 	protected.POST("/branches/:branch_id/quests", s.quests.Create)
 	protected.GET("/branches/:branch_id/quests", s.quests.List)

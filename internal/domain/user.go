@@ -10,7 +10,7 @@ type User struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	Email        string    `gorm:"uniqueIndex;size:255" json:"email"`
 	PasswordHash string    `gorm:"size:255" json:"-"`
-	GitHubID     string    `gorm:"uniqueIndex;size:64" json:"-"`
+	GitHubID     string    `gorm:"column:github_id;uniqueIndex;size:64" json:"-"`
 	Nickname     string    `gorm:"size:64" json:"nickname"`
 	Status       string    `gorm:"size:255" json:"status"`
 	AvatarURL    string    `gorm:"size:512" json:"avatar_url"`

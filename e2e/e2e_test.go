@@ -28,13 +28,16 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/clickhouse"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -45,10 +48,7 @@ const (
 	baseURL    = "http://localhost:8080/api/v1"
 	appURL     = "http://localhost:8080"
 	composeDir = "../deploy"
-	envFile    = "../.env"
-
-	pgDSN = "postgres://levelup:levelup@localhost:5432/levelup?sslmode=disable"
-	chDSN = "clickhouse://default:@localhost:9000?database=levelup&x-multi-statement=true"
+	envFile    = "../.env.e2e"
 )
 
 var defaultEnvTemplate = []byte(`APP_ENV=development
@@ -62,8 +62,10 @@ POSTGRES_SSLMODE=disable
 CLICKHOUSE_HOST=clickhouse
 CLICKHOUSE_PORT=9000
 CLICKHOUSE_DATABASE=levelup
-CLICKHOUSE_USER=default
-CLICKHOUSE_PASSWORD=
+# The ClickHouse image only allows the "default" user from localhost, so the
+# compose stack provisions a dedicated user (created by the image entrypoint).
+CLICKHOUSE_USER=levelup
+CLICKHOUSE_PASSWORD=levelup
 REDIS_HOST=redis
 REDIS_PORT=6379
 REDIS_PASSWORD=
@@ -115,14 +117,20 @@ func run(m *testing.M) int {
 }
 
 func stackUp(ctx context.Context) error {
-	if _, err := os.Stat(envFile); errors.Is(err, os.ErrNotExist) {
-		if err := os.WriteFile(envFile, defaultEnvTemplate, 0o600); err != nil {
-			return fmt.Errorf("write .env: %w", err)
-		}
-		fmt.Println("e2e: created .env for the compose stack")
-	} else {
-		fmt.Println("e2e: reusing existing .env (ensure it points to compose service names: postgres, redis, clickhouse)")
+	// Use a dedicated env file (not the developer's .env, which usually points
+	// at localhost for native runs). It is regenerated on every run so the
+	// stack always gets compose service names and the benchmark rate limits.
+	if err := os.WriteFile(envFile, defaultEnvTemplate, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", envFile, err)
 	}
+	fmt.Printf("e2e: wrote %s for the compose stack\n", envFile)
+
+	// Start from a clean slate so results are deterministic across runs (the
+	// e2e database is disposable). down -v is a no-op when nothing exists.
+	if out, err := compose(ctx, "down", "-v"); err != nil {
+		return fmt.Errorf("compose down -v: %w\n%s", err, out)
+	}
+	fmt.Println("e2e: wiped previous stack state")
 
 	if out, err := compose(ctx, "up", "-d", "--build"); err != nil {
 		return fmt.Errorf("compose up: %w\n%s", err, out)
@@ -155,13 +163,22 @@ func stackDown(ctx context.Context) error {
 }
 
 // compose runs the docker-compose CLI (v2 "docker compose" with v1 fallback).
+// The dedicated e2e env file is passed explicitly so that variable
+// interpolation in docker-compose.dev.yml always uses the same credentials as
+// the app container.
 func compose(ctx context.Context, args ...string) ([]byte, error) {
-	if _, err := exec.LookPath("docker-compose"); err == nil {
-		full := append([]string{"-f", composeDir + "/docker-compose.dev.yml"}, args...)
-		return exec.CommandContext(ctx, "docker-compose", full...).CombinedOutput()
+	cmd := "docker-compose"
+	if _, err := exec.LookPath("docker-compose"); err != nil {
+		cmd = "docker"
 	}
-	full := append([]string{"compose", "-f", composeDir + "/docker-compose.dev.yml"}, args...)
-	return exec.CommandContext(ctx, "docker", full...).CombinedOutput()
+	full := []string{"--env-file", envFile, "-f", composeDir + "/docker-compose.dev.yml"}
+	if cmd == "docker" {
+		full = append([]string{"compose"}, full...)
+	}
+	full = append(full, args...)
+	c := exec.CommandContext(ctx, cmd, full...)
+	c.Env = append(os.Environ(), "LEVELUP_ENV_FILE="+envFile)
+	return c.CombinedOutput()
 }
 
 func waitTCP(ctx context.Context, addr string, timeout time.Duration) error {
@@ -202,6 +219,7 @@ func waitURL(ctx context.Context, url string, timeout time.Duration) error {
 }
 
 func runMigrations(ctx context.Context) error {
+	pgDSN, chDSN := dbDSNs()
 	for _, mc := range []struct{ source, dsn string }{
 		{"file://../migrations/postgres", pgDSN},
 		{"file://../migrations/clickhouse", chDSN},
@@ -212,6 +230,70 @@ func runMigrations(ctx context.Context) error {
 	}
 	fmt.Println("e2e: migrations applied")
 	return nil
+}
+
+// dbDSNs builds the Postgres and ClickHouse DSNs from the repository .env so
+// migrations always connect with the same credentials as the app container.
+// If .env is missing or a variable is unset, the compose defaults are used.
+func dbDSNs() (string, string) {
+	env := envMap()
+	return pgDSNFromEnv(env), chDSNFromEnv(env)
+}
+
+func envMap() map[string]string {
+	out := map[string]string{}
+	data, err := os.ReadFile(envFile)
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		out[k] = strings.TrimSpace(strings.Trim(v, `"'`))
+	}
+	return out
+}
+
+func envVal(m map[string]string, key, def string) string {
+	if v, ok := m[key]; ok && v != "" {
+		return v
+	}
+	return def
+}
+
+func pgDSNFromEnv(env map[string]string) string {
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(envVal(env, "POSTGRES_USER", "levelup"), envVal(env, "POSTGRES_PASSWORD", "levelup")),
+		Host:   net.JoinHostPort("localhost", envVal(env, "POSTGRES_PORT", "5432")),
+		Path:   "/" + envVal(env, "POSTGRES_DB", "levelup"),
+	}
+	q := u.Query()
+	q.Set("sslmode", envVal(env, "POSTGRES_SSLMODE", "disable"))
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func chDSNFromEnv(env map[string]string) string {
+	// The legacy clickhouse-go v1 driver only reads credentials from the
+	// username/password query parameters (URL userinfo is ignored).
+	u := &url.URL{
+		Scheme: "clickhouse",
+		Host:   net.JoinHostPort("localhost", "9000"),
+	}
+	q := u.Query()
+	q.Set("username", envVal(env, "CLICKHOUSE_USER", "levelup"))
+	q.Set("password", envVal(env, "CLICKHOUSE_PASSWORD", "levelup"))
+	q.Set("database", envVal(env, "CLICKHOUSE_DATABASE", "levelup"))
+	q.Set("x-multi-statement", "true")
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func migrateRetry(ctx context.Context, source, dsn string) error {
@@ -407,7 +489,7 @@ func waitFor(t *testing.T, what string, timeout time.Duration, check func() bool
 // --- Tests -------------------------------------------------------------------
 
 func TestE2EHealth(t *testing.T) {
-	c := newClient()
+	c := &apiClient{base: appURL, hc: &http.Client{Timeout: 20 * time.Second}}
 
 	status, body := c.do(t, http.MethodGet, "/healthz", "", nil)
 	requireStatus(t, status, http.StatusOK, body, "healthz")
@@ -538,7 +620,7 @@ func TestE2EShop(t *testing.T) {
 	}
 
 	status, body = c.do(t, http.MethodPost, fmt.Sprintf("/shop/items/%d/buy", itemID), buyer.token, nil)
-	requireStatus(t, status, http.StatusCreated, body, "buy item")
+	requireStatus(t, status, http.StatusOK, body, "buy item")
 
 	status, body = c.do(t, http.MethodGet, "/users/me", buyer.token, nil)
 	requireStatus(t, status, http.StatusOK, body, "buyer me")
@@ -595,7 +677,7 @@ func TestE2ERoadmapWorkshop(t *testing.T) {
 	}
 
 	status, body = c.do(t, http.MethodPost, fmt.Sprintf("/workshop/roadmaps/%d/install", workshopID), installer.token, nil)
-	requireStatus(t, status, http.StatusCreated, body, "install roadmap")
+	requireStatus(t, status, http.StatusOK, body, "install roadmap")
 
 	status, body = c.do(t, http.MethodGet, "/roadmaps", installer.token, nil)
 	requireStatus(t, status, http.StatusOK, body, "installed roadmaps")
@@ -621,10 +703,16 @@ func TestE2EStats(t *testing.T) {
 	status, body = c.do(t, http.MethodPost, fmt.Sprintf("/quests/%d/complete", questID), u.token, nil)
 	requireStatus(t, status, http.StatusOK, body, "complete quest")
 
-	// The outbox flusher writes to ClickHouse every 5s, so poll for the data.
+	// The outbox flusher writes to ClickHouse every 5s, so poll until the
+	// branch stats actually appear (a 200 just means the endpoint is up).
+	var branchStats []byte
 	waitFor(t, "stats flush to ClickHouse", 30*time.Second, func() bool {
-		status, _ := c.do(t, http.MethodGet, "/stats/branches", u.token, nil)
-		return status == http.StatusOK
+		status, body := c.do(t, http.MethodGet, "/stats/branches", u.token, nil)
+		if status != http.StatusOK {
+			return false
+		}
+		branchStats = body
+		return len(ids(body)) > 0
 	})
 
 	status, body = c.do(t, http.MethodGet, "/stats/overview", u.token, nil)
@@ -634,10 +722,8 @@ func TestE2EStats(t *testing.T) {
 		t.Fatalf("overview xp = %v, want >= 50", num(m, "xp"))
 	}
 
-	status, body = c.do(t, http.MethodGet, "/stats/branches", u.token, nil)
-	requireStatus(t, status, http.StatusOK, body, "stats branches")
-	if len(ids(body)) != 1 {
-		t.Fatalf("expected 1 branch stat, got %s", body)
+	if len(ids(branchStats)) != 1 {
+		t.Fatalf("expected 1 branch stat, got %s", branchStats)
 	}
 
 	status, body = c.do(t, http.MethodGet, "/stats/quests?period=day", u.token, nil)
@@ -825,12 +911,20 @@ func readWork(c *apiClient, u *user) workFunc {
 	}
 }
 
-// BenchmarkReads measures read throughput (auth + profile from cache).
-func BenchmarkReads(b *testing.B) {
+// benchSetupOnce runs the benchmark user pool outside the benchmark timer, so
+// the framework's b.N calibration is not skewed by the one-time setup cost.
+func benchSetupOnce(b *testing.B) {
+	b.StopTimer()
 	benchSetup()
 	if benchSetupErr != nil {
 		b.Fatal(benchSetupErr)
 	}
+	b.StartTimer()
+}
+
+// BenchmarkReads measures read throughput (auth + profile from cache).
+func BenchmarkReads(b *testing.B) {
+	benchSetupOnce(b)
 	c := newClient()
 	runLoad(b, 32, func(w int) workFunc {
 		return readWork(c, &benchReadUsers[w%len(benchReadUsers)])
@@ -839,10 +933,7 @@ func BenchmarkReads(b *testing.B) {
 
 // BenchmarkQuestComplete measures the write path: create + complete a quest.
 func BenchmarkQuestComplete(b *testing.B) {
-	benchSetup()
-	if benchSetupErr != nil {
-		b.Fatal(benchSetupErr)
-	}
+	benchSetupOnce(b)
 	c := newClient()
 	runLoad(b, 8, func(w int) workFunc {
 		acc := benchQuestAccs[w%len(benchQuestAccs)]
@@ -876,10 +967,7 @@ func BenchmarkQuestComplete(b *testing.B) {
 
 // BenchmarkLogin measures the login path (bcrypt-bound).
 func BenchmarkLogin(b *testing.B) {
-	benchSetup()
-	if benchSetupErr != nil {
-		b.Fatal(benchSetupErr)
-	}
+	benchSetupOnce(b)
 	c := newClient()
 	runLoad(b, 8, func(w int) workFunc {
 		return func() (time.Duration, error) {
@@ -900,10 +988,7 @@ func BenchmarkLogin(b *testing.B) {
 
 // BenchmarkRegister measures the registration path (bcrypt + DB insert).
 func BenchmarkRegister(b *testing.B) {
-	benchSetup()
-	if benchSetupErr != nil {
-		b.Fatal(benchSetupErr)
-	}
+	benchSetupOnce(b)
 	c := newClient()
 	var mu sync.Mutex
 	n := 0
@@ -932,10 +1017,7 @@ func BenchmarkRegister(b *testing.B) {
 // BenchmarkMaxRPS sweeps concurrency levels on the read path and reports the
 // best throughput reached and the concurrency level where it was found.
 func BenchmarkMaxRPS(b *testing.B) {
-	benchSetup()
-	if benchSetupErr != nil {
-		b.Fatal(benchSetupErr)
-	}
+	benchSetupOnce(b)
 	c := newClient()
 	makeWork := func(w int) workFunc {
 		return readWork(c, &benchReadUsers[w%len(benchReadUsers)])

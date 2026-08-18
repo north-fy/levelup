@@ -27,6 +27,7 @@ go.work.sum
 # env file
 .env
 .env.local
+.env.e2e
 
 # binaries
 /bin/

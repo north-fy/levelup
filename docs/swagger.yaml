@@ -712,6 +712,96 @@ paths:
       summary: Create a branch
       tags:
       - branches
+  /branches/{branch_id}:
+    delete:
+      parameters:
+      - description: Branch id
+        in: path
+        name: branch_id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a branch
+      tags:
+      - branches
+    get:
+      parameters:
+      - description: Branch id
+        in: path
+        name: branch_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Branch'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a branch by id
+      tags:
+      - branches
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Branch id
+        in: path
+        name: branch_id
+        required: true
+        type: integer
+      - description: Branch fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateBranchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Branch'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a branch
+      tags:
+      - branches
   /branches/{branch_id}/quests:
     get:
       parameters:
@@ -781,96 +871,6 @@ paths:
       summary: Create a quest in a branch
       tags:
       - quests
-  /branches/{id}:
-    delete:
-      parameters:
-      - description: Branch id
-        in: path
-        name: id
-        required: true
-        type: integer
-      responses:
-        "204":
-          description: No Content
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Delete a branch
-      tags:
-      - branches
-    get:
-      parameters:
-      - description: Branch id
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/domain.Branch'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Get a branch by id
-      tags:
-      - branches
-    patch:
-      consumes:
-      - application/json
-      parameters:
-      - description: Branch id
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: Branch fields
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handlers.updateBranchRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/domain.Branch'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/handlers.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Update a branch
-      tags:
-      - branches
   /quests/{id}:
     delete:
       parameters:

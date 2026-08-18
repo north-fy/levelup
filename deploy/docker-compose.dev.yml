@@ -3,9 +3,9 @@ services:
     image: postgres:16-alpine
     container_name: levelup-postgres
     environment:
-      POSTGRES_USER: levelup
-      POSTGRES_PASSWORD: levelup
-      POSTGRES_DB: levelup
+      POSTGRES_USER: ${POSTGRES_USER:-levelup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-levelup}
+      POSTGRES_DB: ${POSTGRES_DB:-levelup}
     ports:
       - "5432:5432"
     volumes:
@@ -34,9 +34,9 @@ services:
     image: clickhouse/clickhouse-server:24.8-alpine
     container_name: levelup-clickhouse
     environment:
-      CLICKHOUSE_DB: levelup
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-levelup}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-levelup}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-levelup}
     ports:
       - "8123:8123"
       - "9000:9000"
@@ -79,7 +79,7 @@ services:
       dockerfile: deploy/Dockerfile
     container_name: levelup-app
     env_file:
-      - ../.env
+      - ${LEVELUP_ENV_FILE:-../.env}
     ports:
       - "8080:8080"
     depends_on:
