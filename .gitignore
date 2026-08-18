@@ -40,6 +40,10 @@ go.work.sum
 .gomodcache/
 PLAN.md
 
+# frontend
+web/node_modules/
+web/dist/
+
 # Editor/IDE
 .idea/
 # .vscode/
