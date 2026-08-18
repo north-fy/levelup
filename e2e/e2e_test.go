@@ -132,7 +132,7 @@ func stackUp(ctx context.Context) error {
 	}
 	fmt.Println("e2e: wiped previous stack state")
 
-	if out, err := compose(ctx, "up", "-d", "--build"); err != nil {
+	if out, err := compose(ctx, "up", "-d", "--build", "postgres", "redis", "clickhouse", "app"); err != nil {
 		return fmt.Errorf("compose up: %w\n%s", err, out)
 	}
 	fmt.Println("e2e: compose stack is up")
