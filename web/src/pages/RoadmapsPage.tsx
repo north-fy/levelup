@@ -1,15 +1,22 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api } from '../api'
 import type { QuestType, Roadmap, RoadmapDetail, RoadmapNode } from '../types'
-import { Badge, Button, Card, ErrorText, Field, Input, Select, STATUS_COLOR, TextArea, fmtTime, msg, useRefresh } from '../ui'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import Badge from '../components/ui/Badge'
+import FormField from '../components/ui/FormField'
+import { Input, Select, TextArea } from '../components/ui/Input'
+import Spinner from '../components/ui/Spinner'
+import RoadmapGraph from '../components/graph/RoadmapGraph'
+import { useToast } from '../toast'
 
 const TYPES: QuestType[] = ['simple', 'timed']
 
 export default function RoadmapsPage({ token }: { token: string }) {
-  const [roadmaps, setRoadmaps] = useState<Roadmap[]>([])
+  const [roadmaps, setRoadmaps] = useState<Roadmap[] | null>(null)
   const [detail, setDetail] = useState<RoadmapDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [tick, refresh] = useRefresh()
+  const { notify } = useToast()
 
   const [rTitle, setRTitle] = useState('')
   const [rDesc, setRDesc] = useState('')
@@ -27,55 +34,82 @@ export default function RoadmapsPage({ token }: { token: string }) {
     try {
       const list = await api.listRoadmaps(token)
       setRoadmaps(list)
-      setDetail((prev) => {
-        if (!prev) return null
-        return list.find((r) => r.id === prev.id) ? prev : null
-      })
+      setDetail((prev) => (prev && list.some((r) => r.id === prev.id) ? prev : null))
     } catch (e) {
-      setError(msg(e))
+      setError(e instanceof Error ? e.message : String(e))
     }
   }, [token])
 
   useEffect(() => {
     void load()
-  }, [load, tick])
+  }, [load])
 
   useEffect(() => {
     if (!detail) return
+    let cancelled = false
     api
       .getRoadmap(token, detail.id)
-      .then(setDetail)
-      .catch((e) => setError(msg(e)))
-  }, [token, tick]) // eslint-disable-line react-hooks/exhaustive-deps
+      .then((d) => {
+        if (!cancelled) setDetail(d)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [token, detail?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function open(r: Roadmap) {
+    setError(null)
     try {
       setDetail(await api.getRoadmap(token, r.id))
     } catch (e) {
-      setError(msg(e))
+      const m = e instanceof Error ? e.message : String(e)
+      setError(m)
+      notify(m, 'error')
     }
   }
 
-  async function createRoadmap() {
+  async function createRoadmap(e: FormEvent) {
+    e.preventDefault()
     if (!rTitle.trim()) return
     setError(null)
     try {
-      const r = await api.createRoadmap(token, { title: rTitle, description: rDesc })
+      const r = await api.createRoadmap(token, { title: rTitle.trim(), description: rDesc })
       setRTitle('')
       setRDesc('')
+      notify('Роадмапа создана 🗺️', 'success')
       await load()
       await open(r)
     } catch (e) {
-      setError(msg(e))
+      const m = e instanceof Error ? e.message : String(e)
+      setError(m)
+      notify(m, 'error')
     }
   }
 
-  async function addNode() {
+  async function deleteRoadmap(r: Roadmap) {
+    setError(null)
+    try {
+      await api.deleteRoadmap(token, r.id)
+      notify('Роадмапа удалена', 'info')
+      setDetail(null)
+      await load()
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e)
+      setError(m)
+      notify(m, 'error')
+    }
+  }
+
+  async function addNode(e: FormEvent) {
+    e.preventDefault()
     if (!detail || !nTitle.trim()) return
     setError(null)
     try {
       await api.addNode(token, detail.id, {
-        title: nTitle,
+        title: nTitle.trim(),
         description: nDesc,
         type: nType,
         reward_xp: Number(nXp) || 0,
@@ -86,70 +120,92 @@ export default function RoadmapsPage({ token }: { token: string }) {
       setNTitle('')
       setNDesc('')
       setNDeps([])
-      refresh()
+      notify('Узел добавлен в граф ➕', 'success')
+      setDetail(await api.getRoadmap(token, detail.id))
     } catch (e) {
-      setError(msg(e))
+      const m = e instanceof Error ? e.message : String(e)
+      setError(m)
+      notify(m, 'error')
     }
   }
 
-  async function act(fn: () => Promise<unknown>) {
+  async function completeNode(node: RoadmapNode) {
+    if (!detail) return
+    if (node.status === 'done') {
+      notify('Узел уже выполнен', 'info')
+      return
+    }
+    const depsDone = !detail.edges.some((e) => e.to_node_id === node.id && detail.nodes.find((n) => n.id === e.from_node_id)?.status !== 'done')
+    if (!depsDone) {
+      notify('Заблокировано: не выполнены пререквизиты 🔒', 'error')
+      return
+    }
     setError(null)
     try {
-      await fn()
-      refresh()
+      await api.completeNode(token, detail.id, node.id)
+      notify('Узел выполнен 🎉', 'success')
+      setDetail(await api.getRoadmap(token, detail.id))
     } catch (e) {
-      setError(msg(e))
+      const m = e instanceof Error ? e.message : String(e)
+      setError(m)
+      notify(m, 'error')
     }
   }
 
-  const depNames = (node: RoadmapNode) =>
-    detail
-      ? detail.edges
-          .filter((e) => e.to_node_id === node.id)
-          .map((e) => detail?.nodes.find((n) => n.id === e.from_node_id)?.title ?? `#${e.from_node_id}`)
-      : []
+  const doneCount = detail?.nodes.filter((n) => n.status === 'done').length ?? 0
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
       <div className="space-y-4">
         <Card title="Новая роадмапа">
-          <div className="space-y-3">
-            <Field label="Название">
+          <form onSubmit={(e) => void createRoadmap(e)} className="space-y-3" noValidate>
+            <FormField label="Название">
               <Input value={rTitle} onChange={(e) => setRTitle(e.target.value)} placeholder="Путь Go-разработчика" />
-            </Field>
-            <Field label="Описание">
+            </FormField>
+            <FormField label="Описание">
               <TextArea value={rDesc} onChange={(e) => setRDesc(e.target.value)} rows={2} />
-            </Field>
-            <Button onClick={() => void createRoadmap()} disabled={!rTitle.trim()}>
-              Создать
+            </FormField>
+            <Button type="submit" disabled={!rTitle.trim()}>
+              Создать роадмапу
             </Button>
-          </div>
+          </form>
         </Card>
 
-        <Card title={`Роадмапы (${roadmaps.length})`}>
-          <div className="max-h-96 space-y-1 overflow-y-auto">
-            {roadmaps.map((r) => (
-              <div
-                key={r.id}
-                className={`flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm ${
-                  detail?.id === r.id ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50'
-                }`}
-                onClick={() => void open(r)}
-              >
-                {r.title}
-                <button
-                  className="text-xs text-slate-400 hover:text-rose-500"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void act(() => api.deleteRoadmap(token, r.id)).then(() => setDetail(null))
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-            {roadmaps.length === 0 && <div className="text-sm text-slate-400">Роадмап нет</div>}
-          </div>
+        <Card title={`Роадмапы${roadmaps ? ` (${roadmaps.length})` : ''}`}>
+          {!roadmaps ? (
+            <Spinner label="Загрузка" />
+          ) : roadmaps.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">Роадмап нет — создайте первую</p>
+          ) : (
+            <ul className="max-h-96 space-y-1 overflow-y-auto">
+              {roadmaps.map((r) => (
+                <li key={r.id}>
+                  <div
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm ${
+                      detail?.id === r.id ? 'bg-indigo-600/10 font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300' : ''
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={detail?.id === r.id}
+                      onClick={() => void open(r)}
+                      className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    >
+                      {r.title}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Удалить роадмапу ${r.title}`}
+                      onClick={() => void deleteRoadmap(r)}
+                      className="rounded p-1 text-slate-400 hover:text-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       </div>
 
@@ -159,113 +215,99 @@ export default function RoadmapsPage({ token }: { token: string }) {
             <Card
               title={detail.title}
               actions={
-                detail.source_type && detail.source_id ? (
-                  <Badge color="indigo">
-                    {detail.source_type} #{detail.source_id}
+                <>
+                  {detail.source_type && detail.source_id ? (
+                    <Badge color="fuchsia">
+                      {detail.source_type} #{detail.source_id}
+                    </Badge>
+                  ) : (
+                    <Badge color="indigo">id {detail.id}</Badge>
+                  )}
+                  <Badge color={doneCount === detail.nodes.length && detail.nodes.length > 0 ? 'emerald' : 'amber'}>
+                    {doneCount}/{detail.nodes.length} узлов
                   </Badge>
-                ) : (
-                  <Badge color="slate">id {detail.id}</Badge>
-                )
+                </>
               }
             >
-              <p className="text-sm text-slate-600">{detail.description || 'Без описания'}</p>
+              <p className="text-sm text-slate-600 dark:text-slate-300">{detail.description || 'Без описания'}</p>
             </Card>
 
+            <RoadmapGraph detail={detail} onComplete={(n) => void completeNode(n)} />
+
             <Card title="Новый узел">
-              <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Название">
+              <form onSubmit={(e) => void addNode(e)} className="grid gap-3 md:grid-cols-2" noValidate>
+                <FormField label="Название">
                   <Input value={nTitle} onChange={(e) => setNTitle(e.target.value)} placeholder="Изучить синтаксис" />
-                </Field>
-                <Field label="Тип">
+                </FormField>
+                <FormField label="Тип">
                   <Select value={nType} onChange={(e) => setNType(e.target.value as QuestType)}>
                     {TYPES.map((t) => (
                       <option key={t} value={t}>
-                        {t}
+                        {t === 'simple' ? 'simple' : 'timed'}
                       </option>
                     ))}
                   </Select>
-                </Field>
+                </FormField>
                 <div className="md:col-span-2">
-                  <Field label="Описание">
+                  <FormField label="Описание">
                     <TextArea value={nDesc} onChange={(e) => setNDesc(e.target.value)} rows={2} />
-                  </Field>
+                  </FormField>
                 </div>
-                <Field label="Reward XP">
-                  <Input type="number" value={nXp} onChange={(e) => setNXp(e.target.value)} />
-                </Field>
-                <Field label="Reward Gold">
-                  <Input type="number" value={nGold} onChange={(e) => setNGold(e.target.value)} />
-                </Field>
+                <FormField label="Reward XP">
+                  <Input type="number" min={0} value={nXp} onChange={(e) => setNXp(e.target.value)} />
+                </FormField>
+                <FormField label="Reward Gold">
+                  <Input type="number" min={0} value={nGold} onChange={(e) => setNGold(e.target.value)} />
+                </FormField>
                 {nType === 'timed' && (
-                  <Field label="Длительность (часы)">
-                    <Input type="number" value={nHours} onChange={(e) => setNHours(e.target.value)} />
-                  </Field>
+                  <FormField label="Длительность (часы)">
+                    <Input type="number" min={1} value={nHours} onChange={(e) => setNHours(e.target.value)} />
+                  </FormField>
                 )}
-                <Field label="Зависимости (пререквизиты)">
-                  <select
-                    multiple
-                    className="h-28 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-indigo-400"
-                    value={nDeps.map(String)}
-                    onChange={(e) =>
-                      setNDeps(Array.from(e.target.selectedOptions, (o) => Number(o.value)))
-                    }
-                  >
-                    {detail.nodes.map((n) => (
-                      <option key={n.id} value={n.id}>
-                        {n.title}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-              <div className="mt-3">
-                <Button onClick={() => void addNode()} disabled={!nTitle.trim()}>
-                  Добавить узел
-                </Button>
-              </div>
-            </Card>
-
-            <Card title={`Узлы (${detail.nodes.length})`}>
-              <div className="space-y-2">
-                {detail.nodes.map((n) => (
-                  <div key={n.id} className="rounded-lg border border-slate-100 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-slate-800">
-                          {n.position}. {n.title}
-                        </span>
-                        <Badge color={n.type === 'timed' ? 'amber' : 'slate'}>{n.type}</Badge>
-                        <Badge color={STATUS_COLOR[n.status]}>{n.status}</Badge>
-                      </div>
-                      <div className="flex gap-1">
-                        {n.status !== 'done' && (
-                          <Button variant="success" onClick={() => void act(() => api.completeNode(token, detail.id, n.id))}>
-                            Выполнить
-                          </Button>
-                        )}
-                      </div>
+                <fieldset className="md:col-span-2">
+                  <legend className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    Зависимости (пререквизиты)
+                  </legend>
+                  {detail.nodes.length === 0 ? (
+                    <p className="text-xs text-slate-400">Пока нет узлов — этот будет первым</p>
+                  ) : (
+                    <div className="grid max-h-40 gap-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                      {detail.nodes.map((n) => (
+                        <label key={n.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
+                          <input
+                            type="checkbox"
+                            checked={nDeps.includes(n.id)}
+                            onChange={() =>
+                              setNDeps((d) => (d.includes(n.id) ? d.filter((x) => x !== n.id) : [...d, n.id]))
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                          />
+                          <span className="text-slate-700 dark:text-slate-200">
+                            {n.position}. {n.title}
+                          </span>
+                        </label>
+                      ))}
                     </div>
-                    {n.description && <div className="mt-1 text-sm text-slate-500">{n.description}</div>}
-                    <div className="mt-1 text-xs text-slate-400">
-                      +{n.reward_xp} XP · +{n.reward_gold} 💰
-                      {n.duration_hours > 0 && ` · ${n.duration_hours}ч`}
-                      {depNames(n).length > 0 && (
-                        <span className="text-indigo-500"> · пререквизиты: {depNames(n).join(', ')}</span>
-                      )}
-                      {n.completed_at && <span> · выполнено {fmtTime(n.completed_at)}</span>}
-                    </div>
-                  </div>
-                ))}
-                {detail.nodes.length === 0 && <div className="text-sm text-slate-400">Узлов нет</div>}
-              </div>
+                  )}
+                </fieldset>
+                <div className="md:col-span-2">
+                  <Button type="submit" disabled={!nTitle.trim()}>
+                    Добавить узел
+                  </Button>
+                </div>
+              </form>
             </Card>
           </>
         ) : (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-400">
-            Выберите роадмапу
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
+            Выберите роадмапу слева, чтобы увидеть её граф
           </div>
         )}
-        <ErrorText error={error} />
+        {error && (
+          <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
+            {error}
+          </p>
+        )}
       </div>
     </div>
   )

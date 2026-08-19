@@ -1,3 +1,53 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
+  html {
+    @apply scroll-smooth antialiased;
+  }
+  body {
+    @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+  }
+  ::selection {
+    @apply bg-indigo-500/30;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background-image: linear-gradient(135deg, #6366f1, #d946ef 55%, #f59e0b);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .glass {
+    @apply border border-white/60 bg-white/70 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/70;
+  }
+  .bg-aurora {
+    background-image:
+      radial-gradient(40% 55% at 15% 20%, rgba(99, 102, 241, 0.35), transparent 60%),
+      radial-gradient(40% 55% at 85% 15%, rgba(217, 70, 239, 0.3), transparent 60%),
+      radial-gradient(50% 60% at 60% 90%, rgba(245, 158, 11, 0.18), transparent 60%);
+  }
+  .card-glow {
+    @apply shadow-[0_10px_40px_-15px_rgba(99,102,241,0.35)] dark:shadow-[0_10px_40px_-15px_rgba(99,102,241,0.5)];
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
