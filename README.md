@@ -78,6 +78,6 @@ make test
 make e2e     
 ```
 
-## 📄 License
+## License
 
 Released under the [MIT License](LICENSE).
