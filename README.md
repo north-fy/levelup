@@ -18,19 +18,19 @@
 
 ---
 
-## ✨ What is this
+## What is this
 
 LevelUp is an **RPG task tracker**:
 
-- 🌿 **Branches & quests** — organize tasks into directions, each quest rewards XP and gold.
-- ⏱️ **Timers** — timed quests track hours and pay proportional rewards.
-- 🗺️ **Roadmap graphs** — nodes with prerequisites form a real directed acyclic graph.
-- 🛒 **Shop** — spend gold on other players' items or sell your own.
-- 🧰 **Workshop** — publish roadmaps and install other people's ones.
-- 📊 **Statistics** — XP, gold, completed quests and hours in ClickHouse.
-- 🎨 **Landing + personal account** — light/dark theme, accessible interface (WAI-ARIA).
+-  **Branches & quests** — organize tasks into directions, each quest rewards XP and gold.
+-  **Timers** — timed quests track hours and pay proportional rewards.
+-  **Roadmap graphs** — nodes with prerequisites form a real directed acyclic graph.
+-  **Shop** — spend gold on other players' items or sell your own.
+-  **Workshop** — publish roadmaps and install other people's ones.
+-  **Statistics** — XP, gold, completed quests and hours in ClickHouse.
+-  **Landing + personal account** — light/dark theme, accessible interface (WAI-ARIA).
 
-## 🛠️ Technologies
+## Technologies
 
 **Backend** — Go 1.26, Gin, GORM, PostgreSQL, Redis (cache + rate limit), ClickHouse (statistics via outbox), JWT auth + GitHub OAuth, Prometheus metrics, Swagger.
 
@@ -60,18 +60,18 @@ $ make run
 $ cd web && npm ci && npm run dev
 ```
 
-## 📚 API documentation
+## API documentation
 
 Interactive Swagger UI: **http://localhost:8080/swagger/index.html** (also available at http://localhost/swagger).
 
 The backend exposes `GET /healthz`, `GET /readyz`, `GET /metrics` and the `/api/v1/*` REST API with JWT auth.
 
-## 📈 Metrics
+## Metrics
 
 - **Prometheus** — http://localhost:9090 (service metrics, request latencies, HTTP codes).
 - **Grafana** — http://localhost:3000 (dashboard `levelup.json`, credentials `admin`/`admin`).
 
-## 🧪 Testing
+## Testing
 
 ```bash
 make test    
